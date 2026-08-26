@@ -15,12 +15,12 @@ Production baseline:
 |---|---|
 | Edge | Front Door Premium and WAF |
 | Web/BFF/API | App Service Premium v3, at least two instances, deployment slots |
-| Sync/change workers | Azure Container Apps, no public ingress |
+| Operations/sync/change workers | Azure Container Apps, no public ingress |
 | Database | Azure SQL General Purpose; zone redundancy where region/tier supports it |
 | Messaging | Azure Service Bus Premium where private endpoint/isolation requirements apply |
 | Secrets/certificates | Key Vault |
 | Dynamic flags/config | App Configuration |
-| Audit export | Immutable-policy-capable Blob Storage and/or security-owned Log Analytics |
+| Audit authority | WORM-capable Blob Storage; security-owned Log Analytics is an optional searchable copy |
 | Telemetry | Application Insights and Log Analytics through OpenTelemetry |
 | Images | Azure Container Registry |
 | IaC | Bicep |
@@ -49,8 +49,12 @@ Separate managed identities:
 web identity
   App Service, SQL/API infrastructure only, no Azure DevOps
 
+operations identity
+  Outbox dispatch, audit export, approved App Configuration changes, and
+  maintenance; no Azure DevOps
+
 sync identity
-  Sync Container App, Azure DevOps read capability only
+  Sync Container App, minimum tested Azure DevOps inventory/ACL capability
 
 change identity
   Change Container App, narrowly scoped Azure DevOps write capability
@@ -75,6 +79,7 @@ enqueue an arbitrary provider operation.
   - Access Administrator
   - Application Administrator
 - role-assignment groups with PIM for privileged roles
+- reviewed bootstrap Application Administrator scope record; no UI self-grant
 - Conditional Access and MFA
 - user/group assignment governance and access reviews
 - managed identities in the Azure DevOps-connected tenant
@@ -94,7 +99,9 @@ review and admin consent.
    than using Project Collection Administrators.
 5. Grant sync identity only inventory and ACL visibility for approved projects.
 6. Grant change identity only membership management and Project/Git permission
-   management for allowed projects/resources.
+   management for allowed projects/resources. Application policy further limits
+   writes to Project `GENERIC_READ` and Git `GenericRead`,
+   `GenericContribute`, `CreateBranch`, and `CreateTag`.
 7. Configure protected identities, system/admin groups, projects, repositories,
    and break-glass users.
 8. Create a dedicated sandbox project/repository for capability validation.
@@ -103,6 +110,9 @@ review and admin consent.
 
 Service principals must be from the same connected tenant in the normal model.
 If least privilege cannot support an operation, the operation remains manual.
+Because Azure DevOps documents `vso.security_manage` for both ACL reads and
+writes, Phase 0 must explicitly record whether the sync identity has unavoidable
+residual mutation capability even though its runtime has no mutation client.
 
 ## Configuration hierarchy
 
@@ -115,16 +125,32 @@ organization:{id}:writes=false
 organization:{id}:operation:add-membership=false
 organization:{id}:operation:add-project-git-allow=false
 organization:{id}:operation:remove-direct-bit=false
+organization:{id}:operation:restore-direct-bit=false
 provider endpoint versions
 sync schedules/concurrency/budgets
 freshness and plan-expiry policy
-protected target IDs
+authorization-evidence:max-age=00:15:00  # initial proposal; ratify in Phase 0
 retention/export policy
+audit:max-export-lag=00:15:00   # initial proposal; ratify before writes
 ```
 
 Static deployment configuration also determines whether the mutation provider
 and change worker are deployed. Dynamic flags cannot enable code absent from the
 deployment.
+
+Azure App Configuration is authoritative for app-owned nonsecret dynamic flags
+and policy values. The API records `ConfigurationChangeRequest` in SQL; the
+Operations worker applies it with the expected App Configuration ETag and reads
+back the observed version. Protected targets and mapping overrides are
+authoritative SQL records with their own audited change workflows, not App
+Configuration keys.
+
+Configuration validation atomically rejects
+`operation:remove-direct-bit=true` unless `operation:restore-direct-bit=true`
+and current restoration capability evidence exist. Disabling restoration first
+automatically disables forward removal. The absolute read-only/all-mutation kill
+switch can still stop restoration; doing so during removal triggers the manual
+partial-application incident procedure.
 
 Secrets/certificates remain in Key Vault. Configuration retrieval failure makes
 writes unavailable. Flag changes are audited and monitored.
@@ -311,11 +337,15 @@ operator to bypass safety validation.
 ### Stage 4 — Sandbox writes
 
 - separately deployed change worker/write identity
-- exact membership/Project/Git tests
+- exact membership and allowlisted Project/Git forward/restoration tests plus
+  ManualOnly cleanup preview/observation
+- direct-bit-suppressed replacement counterfactual
 - failure injection, compensation, and kill-switch drills
 
 ### Stage 5 — Limited production pilot
 
+- all read-only and production-write deployment acceptance items pass, including
+  privacy, penetration/accessibility review, immutable audit, and DR exercise
 - one approved organization/project
 - low-risk supported operations and small operation cap
 - two-person approval
@@ -382,9 +412,13 @@ Read-only production:
 
 Production write pilot:
 
+- [ ] Every read-only production acceptance item remains satisfied.
 - [ ] Separate change worker/identity and least privilege are verified.
 - [ ] Sandbox safety suite and kill-switch/compromise drills pass.
-- [ ] Audit export, `InDoubt`, compensation, and partial-application runbooks are
+- [ ] Immutable audit watermark, both phase-specific `InDoubt` paths, direct-bit
+      restoration, ManualOnly cleanup, and partial-application runbooks are
       exercised.
+- [ ] Direct-bit-suppressed counterfactual and final provider verification pass
+      for every enabled action.
 - [ ] Only one organization/project and exact operations are enabled.
 - [ ] Post-pilot evidence is reviewed before any expansion.

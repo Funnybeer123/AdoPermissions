@@ -6,9 +6,9 @@ Date: 2026-08-26
 ## Context
 
 Interactive pages cannot call dozens of Azure DevOps endpoints. Enterprise
-inventories are paged, permission-trimmed, eventually consistent, and can fail
-part way through. Migration planning also needs immutable evidence and strong
-relational integrity.
+inventories are paged, caller-visibility-dependent, eventually consistent, and
+can fail part way through. Migration planning also needs immutable evidence and
+strong relational integrity.
 
 The data is graph-shaped for explanation but heavily relational for scope,
 search, ACL masks, audit, plans, and transactions.
@@ -20,9 +20,11 @@ Store direct graph edges and relational security facts; calculate closure/read
 models in SQL/application logic.
 
 Every authoritative sync stage writes a staging generation and promotes it
-atomically only after all pages and validation complete. A partial stage retains
-the previous active generation and reports degraded coverage. Targeted refresh
-updates exact authoritative keys but never infers global deletion.
+atomically only after all pages, visibility, and validation checks complete. A
+partial or visibility-reduced stage retains the previous active generation and
+reports degraded coverage. Absence is only a deletion candidate and requires
+authoritative confirmation. Targeted refresh updates exact authoritative keys
+but never infers global deletion.
 
 Use SQL Server containers/Testcontainers for correctness tests. SQLite is
 permitted only for an explicitly disposable read-only demo profile.
@@ -51,6 +53,8 @@ permitted only for an explicitly disposable read-only demo profile.
 ## Validation
 
 - Partial stage never tombstones active rows.
+- Complete-but-visibility-reduced stage is quarantined; only authoritative
+  confirmation creates a provider-deleted tombstone.
 - Full generation promotion is atomic under crash/failure injection.
 - SQL integration tests prove organization isolation, rowversion, outbox, and
   append-only audit.

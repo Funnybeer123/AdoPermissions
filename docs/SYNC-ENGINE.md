@@ -6,8 +6,8 @@ Status: proposed
 
 Build reliable, explainable read models without fanning out to dozens of Azure
 DevOps APIs on each page load. Synchronization must make incomplete or
-permission-trimmed data visible and must never convert a partial fetch into
-authoritative absence.
+caller-visibility-dependent data visible and must never convert a partial or
+visibility-reduced fetch into authoritative absence.
 
 ## Provider boundary
 
@@ -25,10 +25,17 @@ IAccessInventoryProvider
   ListRepositories(project)
   ListSecurityNamespaces()
   QueryAcls(namespace, token, descriptors?, extendedInfo?)
+
+IEntraDirectoryProvider
+  GetDirectorySubjects(ids)
+  ListDirectMemberships(subject, page)
+  ListTransitiveMemberships(subject, page)
 ```
 
-The Azure DevOps, Entra, and fake providers implement the same normalized page
-and error contracts:
+The Azure DevOps and fake providers implement `IAccessInventoryProvider`. The
+optional Entra provider has a separate, read-only directory contract because it
+does not provide projects, repositories, or ACLs. All providers share normalized
+page and error envelopes:
 
 ```text
 ProviderPage<T>
@@ -74,7 +81,8 @@ flowchart TD
     CAP --> PROJECTS[Projects]
     PROJECTS --> USERS[User entitlements]
     USERS --> PRINCIPALS[Graph users, service principals, groups]
-    PRINCIPALS --> IDS[Descriptor translation]
+    PRINCIPALS --> SPENT[Per-ID service-principal entitlements]
+    SPENT --> IDS[Descriptor translation and person correlation]
     IDS --> MEMBERS[Direct memberships]
     MEMBERS --> TEAMS[Teams and group correlation]
     TEAMS --> REPOS[Repositories]
@@ -98,9 +106,10 @@ failed stage.
 |---|---|---|
 | Capability | Organization registry | Endpoint/version/read coverage |
 | Projects | Organization | Projects |
-| Entitlements | Organization | User roster, license, status |
+| Entitlements | Organization | Human-user roster, license, status |
 | Principals | Organization | Users, service principals, groups |
-| Identifiers | Principals | Graph, storage key, legacy descriptor mappings |
+| Service-principal entitlement | Graph service principals | Optional per-ID license/status coverage |
+| Identifiers/person correlation | Principals | Graph/storage/legacy mappings and tenant-scoped directory-subject links |
 | Memberships | Groups/principals | Direct Azure DevOps edges |
 | Teams | Projects | Teams linked to group principals |
 | Repositories | Projects | Repository resources |
@@ -130,11 +139,19 @@ For each page:
 
 CompleteStage:
     assert final continuation is absent
-    run referential and count sanity checks
+    run referential, coverage, visibility, and count sanity checks
+    classify missing rows as candidates, never immediate deletions
+    if caller scope/capability changed or disappearance is anomalous:
+        quarantine generation; retain prior active generation; stop promotion
+    for each missing candidate:
+        perform an authoritative direct confirmation where available
+        404 with sufficient visibility -> ProviderDeleted
+        403 or no authoritative proof -> VisibilityLost/Unknown, retain fact
     in one SQL transaction:
         mark generation Complete
         switch active generation pointer
-        create tombstones for rows absent from this complete authority
+        tombstone only ProviderDeleted rows with recorded confirmation
+        retain VisibilityLost/Unknown rows and surface degraded coverage
         enqueue affected derivations through outbox
 
 FailStage:
@@ -146,6 +163,13 @@ FailStage:
 A short page is not completion when an endpoint documents a continuation token.
 A repeated continuation token, unexpected query-order change, malformed item,
 or impossible count fails the stage rather than silently truncating it.
+
+“Complete paging” is not the same as “authoritative deletion coverage.”
+Projects are explicitly caller-access filtered, and other APIs do not guarantee
+universal completeness. Store the capability/scope fingerprint used by each
+generation. A drop in visible projects/repositories, endpoint authorization, or
+expected count range quarantines the stage until confirmation. The application
+shows `VisibilityLost`; it does not claim the provider deleted the object.
 
 ## Membership synchronization
 
@@ -187,7 +211,32 @@ Azure DevOps does not provide a complete directory-side view of Entra group
 membership. Without the optional Entra provider, such paths are marked
 unexpanded. With it, Entra direct edges are stored with distinct provenance and
 tenant IDs. A Microsoft Graph failure never deletes Azure DevOps membership
-facts.
+facts. Service principals may inherit Entra-group permissions while being absent
+from Azure DevOps Entra-group member listings; affected evaluations remain
+`Unknown` without separately consented directory evidence. Azure DevOps may take
+roughly an hour to observe an Entra change, while Entra dynamic-group processing
+can take substantially longer; neither is treated as an end-to-end deadline.
+
+## Cross-organization person correlation
+
+After identifier resolution:
+
+```text
+if principal.origin == aad
+and organization.tenantId matches
+and originId is a valid current Entra object ID
+and subject kind matches:
+    upsert tenant-scoped DirectorySubject
+    create Confirmed PrincipalDirectoryLink
+else:
+    retain organization principal without automatic cross-org merge
+    record Ambiguous/Unlinked coverage reason
+```
+
+Relinking closes the old link validity interval and invalidates person-level
+read models/plans. Email or display-name matches can be shown as operator hints
+but never create a link. Cross-organization views authorize each linked
+organization/project independently.
 
 ## Descriptor resolution
 
@@ -314,6 +363,9 @@ preflight regardless of badge.
 |---|---|
 | One page fails | Stage fails/partial; prior active generation stays |
 | 403 on an endpoint | Capability becomes Forbidden; no empty replacement |
+| Complete page set after caller visibility loss | Quarantine; retain rows as `VisibilityLost` until authoritative confirmation |
+| Missing object direct GET returns 403 | Retain last known fact as `VisibilityLost`; never tombstone |
+| Missing object direct GET returns authoritative 404 | Record confirmation and publish `ProviderDeleted` tombstone |
 | Descriptor unresolved | Keep unresolved principal/ACE; affected result Unknown |
 | Membership traversal limit | Keep known edges, mark closure Partial |
 | Namespace schema changed | Publish facts, block interpretation/write |
@@ -331,7 +383,10 @@ preflight regardless of badge.
 - Service endpoint authorization fields and variable values are dropped during
   DTO mapping.
 - Raw provider bodies are not persisted.
-- Sync identity has no provider mutation permission.
+- Sync runtime has no mutation client and cannot obtain the change identity.
+  Identity-level mutation probes must fail or produce an explicit accepted
+  residual-capability record when Azure DevOps cannot separate ACL read/write
+  authorization.
 - Organization scope is enforced in repository keys and authorization.
 
 ## Observability
@@ -358,8 +413,12 @@ dimensions.
 - 200 plus `Retry-After`, 429, 5xx, timeout, 401/403/404
 - Process crash before/after page checkpoint and generation promotion
 - Partial stage does not tombstone active rows
+- complete-but-visibility-reduced stage is quarantined and cannot tombstone
+- 403 versus authoritative 404 confirmation produces VisibilityLost versus
+  ProviderDeleted
 - Targeted refresh does not infer global deletion
-- Descriptor relink/history and unresolved identity
+- Descriptor relink/history, cross-org person correlation, and unresolved/
+  ambiguous identity
 - Membership DAGs, duplicate paths, cycles, and all budgets
 - Namespace/action drift and unknown-bit preservation
 - Organization isolation and concurrent stage leases
@@ -370,6 +429,8 @@ dimensions.
 - [ ] All MVP endpoints use their documented paging contract.
 - [ ] A failed or forbidden stage cannot replace a good generation with empty
       data.
+- [ ] A completed page set with reduced caller visibility cannot create a false
+      deletion; only recorded authoritative confirmation can tombstone.
 - [ ] Freshness and capability coverage are visible in every relevant API/UI.
 - [ ] Full Contoso and sandbox runs are repeatable and idempotent.
 - [ ] Throttling tests prove delayed HTTP 200 and 429 behavior.

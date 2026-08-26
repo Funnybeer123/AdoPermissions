@@ -15,8 +15,8 @@ ADRs capture choices that are expensive to reverse or important to safety.
 | ADR | Status | Decision |
 |---|---|---|
 | [0001](0001-dotnet-10-lts.md) | Accepted | Use .NET 10 LTS |
-| [0002](0002-modular-monolith-and-worker-boundaries.md) | Accepted | Modular monolith with separately deployed web, sync, and change runtimes |
-| [0003](0003-bff-and-separated-workload-identities.md) | Accepted | Same-origin BFF and separate web/read/write identities |
+| [0002](0002-modular-monolith-and-worker-boundaries.md) | Accepted | Modular monolith with separately deployed web, operations, sync, and change runtimes |
+| [0003](0003-bff-and-separated-workload-identities.md) | Accepted | Same-origin BFF and separate web/operations/read/write identities |
 | [0004](0004-azure-sql-generational-sync.md) | Accepted | Azure SQL with generation-based synchronization |
 | [0005](0005-versioned-provider-capabilities.md) | Accepted | Pin API versions per endpoint and gate behavior by proven capability |
 | [0006](0006-permission-authority-and-unknown.md) | Accepted | Namespace-specific evaluation with explicit authority and Unknown |

@@ -17,9 +17,15 @@ permission would weaken token protection and least privilege.
 - Use a same-origin ASP.NET Core BFF with Entra authorization-code flow and PKCE.
 - Issue secure HttpOnly application sessions with anti-CSRF protection.
 - Never send Azure DevOps or Microsoft Graph tokens to the SPA.
-- Use distinct managed identities for web, sync/read, and change/write.
+- Use distinct managed identities for web, internal operations, sync/read, and
+  change/write.
 - The web identity has no Azure DevOps rights.
-- The sync identity has tested read-only Azure DevOps access.
+- The operations identity has no Azure DevOps rights and owns outbox/audit-export
+  infrastructure access.
+- The sync runtime has no mutation client and cannot obtain the change identity.
+  Phase 0 probes identity-level mutations; they must fail or produce an explicit
+  accepted residual-capability record where Azure DevOps cannot separate ACL
+  read/write authorization.
 - The change identity has only allowlisted membership and Project/Git write
   rights and is available only to the change worker.
 - Production does not use PATs or legacy Azure DevOps OAuth.
@@ -52,8 +58,10 @@ in user's delegated Azure DevOps authority.
 
 - Browser/network tests show no Azure DevOps/Graph token.
 - CSRF, session, issuer/audience, and role/scope tests pass.
-- Web/sync identity cannot invoke mutation or obtain change credential.
-- Read identity mutation probes fail.
+- Web/operations/sync runtimes cannot invoke mutation or obtain the change
+  credential.
+- Sync identity mutation probes fail or the unavoidable residual capability is
+  explicitly accepted with compensating runtime/monitoring controls.
 - Change identity outside-scope probes fail.
 
 References:

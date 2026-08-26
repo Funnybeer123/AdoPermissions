@@ -14,8 +14,10 @@ Azure DevOps organization before implementation or production writes.
 1. Prefer an official, generally available API at `7.1`.
 2. Pin the version per operation. Do not set one version globally.
 3. Isolate preview APIs behind provider interfaces and capability flags.
-4. Treat list responses as permission-trimmed unless Microsoft explicitly says
-   otherwise.
+4. Some lists (notably Projects) are explicitly caller-access filtered. For
+   other APIs Microsoft does not guarantee complete tenant/organization
+   coverage. Treat completeness as capability-tested and absence as
+   nonauthoritative until the endpoint and caller scope prove otherwise.
 5. Preserve continuation tokens as opaque, URL-encoded values.
 6. Keep Azure DevOps Graph descriptors, legacy identity descriptors, storage
    keys, and Entra object IDs as distinct identifier types.
@@ -51,20 +53,27 @@ The scope names below are the delegated/PAT scopes advertised by the REST
 references. They do not replace Azure DevOps organization membership, access
 level, groups, or resource ACLs for an application identity.
 
-| Capability | Read scope | Write scope |
+| API family | Read/inventory scope | Resource lifecycle scope |
 |---|---|---|
 | Profile/account discovery | `vso.profile` | none |
 | Member entitlements | `vso.memberentitlementmanagement` | `vso.memberentitlementmanagement_write` |
 | Projects/teams | `vso.project` (some Core reads also accept `vso.profile`) | `vso.project_write`; project lifecycle uses `vso.project_manage` |
 | Graph users/groups/memberships | `vso.graph` | `vso.graph_manage` |
 | Legacy identity resolution | `vso.identity` | not used |
-| Security ACLs and roles | No narrower read-only scope is documented | `vso.security_manage` |
-| Repositories | `vso.code` | `vso.code_manage` |
-| Builds/pipelines | `vso.build` | `vso.build_execute` |
-| Environments | `vso.environment_manage` | `vso.environment_manage` |
-| Service endpoints | `vso.serviceendpoint` | `vso.serviceendpoint_manage` |
-| Variable groups | `vso.variablegroups_read` | `vso.variablegroups_manage` |
+| Security ACLs, Permissions Report, and security roles | `vso.security_manage` (no narrower documented read scope) | `vso.security_manage` |
+| Repository resources | `vso.code` | `vso.code_manage` |
+| Build/pipeline resources | `vso.build` | `vso.build_execute` |
+| Environment resources | `vso.environment_manage` (no narrower documented read scope) | `vso.environment_manage` |
+| Service endpoint resources | `vso.serviceendpoint` | `vso.serviceendpoint_manage` |
+| Variable-group resources | `vso.variablegroups_read` | `vso.variablegroups_manage` |
 | Pipeline resource authorization | `vso.build` | `vso.pipelineresources_manage` |
+
+Resource lifecycle scopes are distinct from authorization scopes. Project, Git,
+and Build ACL writes and Security Role assignment writes advertise
+`vso.security_manage`; `vso.code_manage`, `vso.build_execute`, and similar
+scopes do not grant ACL mutation. Managed identities/service principals request
+`/.default`; the `vso.*` names above are delegated/PAT scopes, not Entra
+application roles.
 
 Legacy Azure DevOps OAuth is deprecated. New registrations stopped in April
 2025 and Microsoft scheduled removal during 2026. New development must use
@@ -94,19 +103,24 @@ Sources: [Profiles - Get][profiles-get], [Accounts - List][accounts-list].
 |---|---|---:|---|---|
 | Entitled human-user roster | `GET https://vsaex.dev.azure.com/{org}/_apis/userentitlements` | `7.1` | Body `continuationToken` | Stable primary roster; includes license/status/last-access metadata |
 | Azure DevOps Graph users | `GET https://vssps.dev.azure.com/{org}/_apis/graph/users` | `7.1-preview.1` | `X-MS-ContinuationToken` response header | Authorization principals and descriptors |
-| Azure DevOps Graph service principals | `GET .../_apis/graph/serviceprincipals` | `7.1-preview.1` | continuation header | Supplement to user entitlements |
+| Azure DevOps Graph service principals | `GET https://vssps.dev.azure.com/{org}/_apis/graph/serviceprincipals` | `7.1-preview.1` | `X-MS-ContinuationToken` | Materialized service-principal identities |
+| One service-principal entitlement | `GET https://vsaex.dev.azure.com/{org}/_apis/serviceprincipalentitlements/{storageKey}` | `7.1-preview.1` | n/a | Per-ID entitlement; no documented list/search endpoint |
 
 User Entitlements is the most reliable stable organization member/license
-inventory, but it is not a complete authorization graph. Join it to Graph users
-and service principals by stable IDs. A missing row can also reflect caller
-visibility, so coverage must be reported.
+inventory for human users, but it is not a complete authorization graph. Join
+it to Graph users by stable IDs. Graph Service Principals supplies materialized
+identity records, not license/access-level data; resolve its descriptor to a
+storage-key UUID and call the preview per-ID entitlement operation where that
+coverage is required. Report human and service-principal entitlement coverage
+separately.
 
 The Graph list contains materialized Azure DevOps subjects, not every user or
 group in the Entra tenant. User creation through Azure DevOps Graph materializes
 an existing Entra/MSA identity; it does not create a directory account.
 
 Sources: [Search User Entitlements][user-entitlements],
-[Graph Users - List][graph-users], [Graph Service Principals - List][graph-sps].
+[Graph Users - List][graph-users], [Graph Service Principals - List][graph-sps],
+[Service Principal Entitlement - Get][sp-entitlement].
 
 ### Projects, teams, groups, and memberships
 
@@ -117,21 +131,26 @@ Sources: [Search User Entitlements][user-entitlements],
 | Team members | `GET /_apis/projects/{projectId}/teams/{teamId}/members` | `7.1` | `$top`/`$skip` | Read |
 | All teams | `GET /_apis/teams` | `7.1-preview.3` | `$top`/`$skip` | Avoid; enumerate stable project-scoped teams |
 | Graph groups | `GET https://vssps.../_apis/graph/groups` | `7.1-preview.1` | `X-MS-ContinuationToken` | Read MVP; create deferred |
-| Direct memberships | `GET .../_apis/graph/memberships/{descriptor}?direction={up|down}&depth=1` | `7.1-preview.1` | none documented | Read |
-| Exact membership | `GET .../_apis/graph/memberships/{subject}/{container}` | `7.1-preview.1` | none | Verification |
+| Direct memberships | `GET .../_apis/graph/memberships/{descriptor}?direction={direction}&depth=1` | `7.1-preview.1` | none documented | Read; direction is `up` or `down` |
+| Exact membership | `HEAD https://vssps.dev.azure.com/{org}/_apis/graph/memberships/{subject}/{container}` | `7.1-preview.1` | none | HTTP 200 means present; 404 means absent |
 | Add membership | `PUT .../_apis/graph/memberships/{subject}/{container}` | `7.1-preview.1` | n/a | Narrow write phase |
 | Remove membership | `DELETE .../_apis/graph/memberships/{subject}/{container}` | `7.1-preview.1` | n/a | Narrow write phase |
 
-Projects and repositories are permission-trimmed. Graph membership depth is
-only one; transitive membership must be traversed from direct edges with cycle,
-depth, node, and query limits. Core Teams has no team-member mutation endpoint.
-A team is backed by a Graph group, so membership changes use Graph Memberships
-after descriptor resolution.
+Projects are explicitly caller-access filtered. Other references do not promise
+that a list is an exhaustive organization inventory for every caller, so live
+capability and coverage checks apply to repositories, Graph subjects, and
+memberships as well. Graph membership depth is only one; transitive membership
+must be traversed from direct edges with cycle, depth, node, and query limits.
+Core Teams has no team-member mutation endpoint. A team is backed by a Graph
+group, so membership changes use Graph Memberships after descriptor resolution.
 
 Entra-backed group membership is not modified through Azure DevOps. If complete
 Entra transitive membership is required, use the separately consented Microsoft
 Graph provider. Without it, show incomplete coverage and block destructive
-automation affected by that gap.
+automation affected by that gap. Service principals can inherit Entra-group
+permissions while being absent from Azure DevOps Entra-group member listings;
+such results remain `Unknown` without directory evidence and Azure DevOps
+post-change verification.
 
 Sources: [Projects - List][projects-list], [Teams - Get Teams][teams-list],
 [Teams - Get Members][team-members], [Graph Groups - List][graph-groups],
@@ -187,8 +206,8 @@ Source: [Repositories - List][repositories-list].
 | Discover namespaces/actions | `GET /_apis/securitynamespaces` | `7.1` | No paging |
 | Query ACLs | `GET /_apis/accesscontrollists/{namespaceId}` | `7.1` | Filters: token, descriptors, recurse, extended info; no paging |
 | Add/update ACE | `POST /_apis/accesscontrolentries/{namespaceId}` | `7.1` | Write phase; exact masks and preconditions |
-| Remove selected permission bits | `DELETE /_apis/permissions/{namespaceId}/{permissionBits}` | `7.1` | Preferred removal primitive |
-| Remove whole ACE | `DELETE /_apis/accesscontrolentries/{namespaceId}` | `7.1` | Exceptional; too broad for routine migration |
+| Remove selected permission bits | `DELETE /_apis/permissions/{namespaceId}/{permissionBits}?descriptor={legacyDescriptor}&token={token}` | `7.1` | REST requires `descriptor`; `token` is optional in the API contract but mandatory under Access Manager safety policy |
+| Remove whole ACE | `DELETE /_apis/accesscontrolentries/{namespaceId}?token={token}&descriptors={legacyDescriptor}` | `7.1` | Exceptional; too broad for routine migration |
 | Replace ACL | `POST /_apis/accesscontrollists/{namespaceId}` | `7.1` | Do not use for routine migration |
 
 Namespace metadata supplies action names/bits, `separatorValue`,
@@ -215,11 +234,12 @@ Sources: [Security Namespaces - Query][security-namespaces],
 
 ### Effective permission oracles
 
-| API | Version | What it can prove | Limitation |
-|---|---:|---|---|
-| ACL query with extended info | `7.1` | Provider-computed masks for one ACE identity/token | Does not provide complete group provenance |
-| Has Permissions / evaluation batch | `7.1` | Whether the calling identity has requested bits | Cannot evaluate an arbitrary selected user |
-| Permissions Report | `7.1` | Asynchronous effective report for supported Git/TFVC/release resources and descriptors | Not a universal Project/Build/resource evaluator; broad scope |
+| API | Method/path | Version/scope | Lifecycle and limitation |
+|---|---|---|---|
+| ACL query with extended info | `GET /_apis/accesscontrollists/{namespaceId}?token=...&descriptors=...&includeExtendedInfo=true` | `7.1`; REST page advertises PAT security | Provider-computed masks for one ACE identity/token; no complete group provenance |
+| Has Permissions | `GET /_apis/permissions/{namespaceId}/{bits}?tokens=...&alwaysAllowAdministrators=false` | `7.1`; REST page advertises PAT security | Synchronous caller-only evaluation; cannot select an arbitrary user |
+| Has Permissions Batch | `POST /_apis/security/permissionevaluationbatch` | `7.1`; REST page advertises PAT security | Synchronous caller-only evaluations; no arbitrary principal field |
+| Permissions Report | `POST /_apis/permissionsreport`, poll `GET /_apis/permissionsreport/{id}`, then `GET /_apis/permissionsreport/{id}/download` | `7.1`; `vso.security_manage` | Asynchronous effective report for supported `repo`, `ref`, `projectGit`, `release`, and `tfvc` resources; not universal |
 
 The Permissions Report supported resource types must be checked against the
 live schema. It is a useful Git verification oracle, not the application's sole
@@ -240,19 +260,25 @@ part of the initial Project/Git permission implementation.
 | Build definitions | `GET /{project}/_apis/build/definitions` | `7.1` | `$top` + continuation | Build ACL namespace; next stable adapter |
 | Pipelines | `GET /{project}/_apis/pipelines` | `7.1` | `$top` + continuation | Inventory only; permissions are not pipeline-run records |
 | Environments | `GET /{project}/_apis/distributedtask/environments` | `7.1` | `$top` + token; token response channel needs contract test | Role based; no narrow read scope |
-| Service endpoints | `GET /{project}/_apis/serviceendpoint/endpoints` | `7.1` | none documented | Role based; authorization secrets are unavailable and must never be stored |
+| Service endpoints | `GET /{project}/_apis/serviceendpoint/endpoints` | `7.1` | none documented | Role based; standard inventory GETs redact secret authorization values |
 | Variable groups | `GET /{project}/_apis/distributedtask/variablegroups` | `7.1` | Integer continuation + stable order | Role based; secret values return null and must never be stored |
-| Security role definitions/assignments | `/ _apis/securityroles/scopes/{scopeId}/...` (without the space) | `7.1-preview.1` | none documented | Scope/resource-key grammar is incompletely documented |
-| Pipeline resource authorization | `GET/PATCH /{project}/_apis/pipelines/pipelinepermissions/...` | `7.1-preview.1` | none documented | Controls pipeline use of a resource, not human/group access |
+| Security role assignments | `GET /_apis/securityroles/scopes/{scopeId}/roleassignments/resources/{resourceId}` | `7.1-preview.1` | none documented | Scope/resource-key grammar is incompletely documented |
+| Pipeline resource authorization | `GET/PATCH /{project}/_apis/pipelines/pipelinepermissions/{resourceType}/{resourceId}` | `7.1-preview.1` | none documented | Controls pipeline use of a resource, not human/group access |
 
 Role APIs use `scopeId`, `resourceId`, `identityId`, and `roleName`; the identity
 is a UUID/storage key rather than an arbitrary Graph descriptor. Official
 references do not completely specify every environment, service endpoint, or
 library resource key. These writes stay disabled until a sandbox capability
 test proves list, set, read-back, and compensation for the exact resource type.
+The namespace GUIDs in the next section are not Security Roles `scopeId` values;
+for example, the official service-endpoint role example uses
+`distributedtask.serviceendpointrole`.
 
 Never round-trip a service endpoint or variable-group GET body into PUT. Secret
 fields are intentionally redacted and cannot be backed up or reconstructed.
+The inventory provider must not call or map the separate
+[Get Service Endpoints With Refreshed Authentication][service-endpoints-refreshed]
+operation, which can return refreshed authorization parameters.
 
 Sources: [Build Definitions][build-definitions], [Pipelines][pipelines],
 [Environments][environments], [Service Endpoints][service-endpoints],
@@ -302,11 +328,15 @@ Pagination is endpoint-specific:
 Do not infer completion from a short page where the API documents a continuation
 token. Persist checkpoints only at complete page boundaries.
 
-Azure DevOps uses throughput units (TSTUs), with a documented global limit of
-200 TSTUs per identity in a sliding five-minute window. Handle:
+Azure DevOps uses throughput units (TSTUs). The default global threshold is 200
+TSTUs per user or integration identity in a sliding five-minute window;
+pipelines are tracked independently with the same default threshold. Basic +
+Test Plans can raise an integration identity's limit, but this is a capacity
+control rather than the first response to inefficient sync. Handle:
 
 ```text
 Retry-After
+X-RateLimit-Resource
 X-RateLimit-Delay
 X-RateLimit-Limit
 X-RateLimit-Remaining
@@ -328,8 +358,9 @@ For each configured organization, record a `ProviderCapability` result with
 endpoint, pinned version, identity, timestamp, outcome, and evidence:
 
 - [ ] Read identity can acquire an Entra token and reach only registered orgs.
-- [ ] User Entitlements plus Graph users/service principals gives expected
-      roster coverage.
+- [ ] User Entitlements plus Graph users gives expected human roster coverage;
+      Graph service principals plus per-ID entitlement probes report their
+      separate coverage.
 - [ ] Project, project-team, group, membership, and repository paging completes.
 - [ ] Graph-to-legacy descriptor translation round-trips representative users,
       native groups, Entra groups, teams, and service principals.
@@ -337,7 +368,9 @@ endpoint, pinned version, identity, timestamp, outcome, and evidence:
 - [ ] Exact Project/repository ACL queries return expected ACEs and extended
       information.
 - [ ] Permissions Report can validate the selected Git cases.
-- [ ] Read identity cannot mutate membership or ACL state.
+- [ ] Sync runtime exposes no mutation client; identity-level mutation probes
+      either fail or record an explicitly reviewed residual ACL capability
+      caused by Azure DevOps's non-read-only security authorization surface.
 - [ ] Write identity cannot read or write outside the sandbox allowlist.
 - [ ] A harmless sandbox membership add/read/remove is idempotent.
 - [ ] A harmless Project/Git bit add/read/remove preserves unrelated and unknown
@@ -354,10 +387,14 @@ passes with the production authentication type.
 2. Graph lists are not an Entra tenant inventory.
 3. Email is not a principal key.
 4. Graph and legacy descriptors are not interchangeable.
-5. Lists are permission-trimmed; absence is not proof of nonexistence.
+5. Projects are caller-access filtered, and other list APIs do not promise
+   universal completeness. Absence is not proof of nonexistence until endpoint
+   authority and caller coverage are proven.
 6. No universal arbitrary-user effective-permission endpoint exists.
 7. Extended ACL masks do not reveal every group path.
-8. Graph identity and membership endpoints are unavoidable preview dependencies.
+8. Graph Users, Groups, Service Principals, Memberships, and Subject Lookup are
+   unavoidable `7.1-preview.1` dependencies. Descriptor Get, Storage Keys Get,
+   and IMS Read Identities are stable `7.1`.
 9. Role resource key formats are not fully documented.
 10. Pipeline resource authorization is distinct from user/group authorization.
 11. Redacted secrets cannot be compared or rolled back.
@@ -394,7 +431,9 @@ passes with the production authentication type.
 [security-namespaces]: https://learn.microsoft.com/en-us/rest/api/azure/devops/security/security-namespaces/query?view=azure-devops-rest-7.1
 [security-roles]: https://learn.microsoft.com/en-us/rest/api/azure/devops/securityroles/roleassignments/list?view=azure-devops-rest-7.1
 [service-endpoints]: https://learn.microsoft.com/en-us/rest/api/azure/devops/serviceendpoint/endpoints/get-service-endpoints?view=azure-devops-rest-7.1
+[service-endpoints-refreshed]: https://learn.microsoft.com/en-us/rest/api/azure/devops/serviceendpoint/endpoints/get-service-endpoints-with-refreshed-authentication?view=azure-devops-rest-7.1
 [set-aces]: https://learn.microsoft.com/en-us/rest/api/azure/devops/security/access-control-entries/set-access-control-entries?view=azure-devops-rest-7.1
+[sp-entitlement]: https://learn.microsoft.com/en-us/rest/api/azure/devops/memberentitlementmanagement/service-principal-entitlements/get?view=azure-devops-rest-7.1
 [storage-key-get]: https://learn.microsoft.com/en-us/rest/api/azure/devops/graph/storage-keys/get?view=azure-devops-rest-7.1
 [subject-lookup]: https://learn.microsoft.com/en-us/rest/api/azure/devops/graph/subject-lookup/lookup-subjects?view=azure-devops-rest-7.1
 [team-members]: https://learn.microsoft.com/en-us/rest/api/azure/devops/core/teams/get-team-members-with-extended-properties?view=azure-devops-rest-7.1

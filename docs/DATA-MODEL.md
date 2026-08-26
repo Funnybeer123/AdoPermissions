@@ -10,7 +10,8 @@ authoritative.
 ## Modeling principles
 
 1. Every provider-owned object receives an internal stable ID.
-2. Every external identifier is typed, organization-scoped, and validity dated.
+2. Every external identifier is typed and validity dated. Azure DevOps
+   identifiers are organization-scoped; Entra identifiers are tenant-scoped.
 3. Email, UPN, display name, and resource name are never primary keys.
 4. A team is both a Core team and a group principal; memberships are stored once.
 5. Direct assignment, group source, resource inheritance, allow/deny effect, and
@@ -22,13 +23,24 @@ authoritative.
    the full enterprise Cartesian product is not materialized.
 9. Every plan references immutable evidence, evaluator/interpreter versions, and
    data completeness.
-10. Organization scope is present in keys and foreign-key paths to prevent
-    cross-organization joins.
+10. Organization scope is present in provider keys and foreign-key paths to
+    prevent accidental cross-organization joins. Deliberate cross-organization
+    person views go through a tenant-scoped directory-subject link and reapply
+    authorization per organization.
 
 ## Relationship overview
 
 ```mermaid
 erDiagram
+    DIRECTORY_SUBJECT ||--o{ PRINCIPAL_DIRECTORY_LINK : materializes_as
+    PRINCIPAL ||--o{ PRINCIPAL_DIRECTORY_LINK : correlates
+    APPLICATION_ACTOR ||--o{ APPLICATION_ROLE_GRANT : receives
+    APPLICATION_ACTOR ||--o{ AUTHORIZATION_EVIDENCE : authenticates
+    APPLICATION_ACTOR ||--o{ MIGRATION_PLAN_VERSION : creates
+    APPLICATION_ACTOR ||--o{ PLAN_APPROVAL : approves
+    APPLICATION_ACTOR ||--o{ MIGRATION_EXECUTION : requests
+    APPLICATION_ACTOR ||--o{ CONFIGURATION_CHANGE_REQUEST : initiates
+    APPLICATION_ACTOR ||--o{ PROTECTED_TARGET_CHANGE : approves
     ORGANIZATION ||--o{ PROJECT : contains
     ORGANIZATION ||--o{ PRINCIPAL : contains
     PRINCIPAL ||--o{ PRINCIPAL_IDENTIFIER : identified_by
@@ -74,6 +86,132 @@ RowVersion             app database optimistic concurrency
 
 Timestamps are UTC. Raw provider response bodies are not retained.
 
+## Application identity and cross-organization entities
+
+Application actors are not Azure DevOps principals. A person can sign in to the
+application without being materialized in every configured Azure DevOps
+organization, and the app must not use an organization-scoped principal as an
+authorization identity.
+
+### DirectorySubject
+
+A tenant-scoped identity used to correlate materializations across
+organizations:
+
+| Field | Notes |
+|---|---|
+| `Id` | Internal stable ID |
+| `TenantId`, `EntraObjectId`, `Kind` | Unique current Entra user, service principal, or group coordinate |
+| `DisplayNameSnapshot` | Mutable display data only |
+| `State` | Active, Deleted, Relinked, Ambiguous |
+
+For an Entra user, this is the cross-organization “person” aggregate. MSA,
+unresolved, tenant-mismatched, or relinked subjects are not automatically
+merged.
+
+### PrincipalDirectoryLink
+
+| Field | Notes |
+|---|---|
+| `PrincipalId`, `DirectorySubjectId` | Organization materialization to tenant subject |
+| `Status` | Confirmed, Ambiguous, Historical, Rejected |
+| `Evidence` | `origin=aad`, origin ID, tenant, storage key, observed generation |
+| `ValidFromUtc`, `ValidToUtc` | Correlation history |
+
+Automatic linking requires matching tenant, subject kind, `origin=aad`, and
+current `originId`; email/display name never links records. Ambiguity produces
+separate candidates and `Unknown`, not an automatic merge. A cross-org API loads
+the directory subject, then independently authorizes and filters every linked
+organization/project before returning results.
+
+### ApplicationActor
+
+| Field | Notes |
+|---|---|
+| `Id` | Stable application actor ID |
+| `TenantId`, `EntraObjectId` | Unique signed-in Entra subject |
+| `SubjectType` | HumanUser for approval/execution; service identities are non-approvers |
+| `DirectorySubjectId` | Optional correlation to inventory, not authorization authority |
+| `Status`, `LastSeenAtUtc` | Active/disabled and session attribution context |
+
+### ApplicationRoleGrant
+
+| Field | Notes |
+|---|---|
+| `ActorId`, `Role` | Viewer, AccessAnalyst, MigrationApprover, AccessAdministrator, ApplicationAdministrator |
+| `OrganizationId`, `ProjectId` | Nullable scope; project requires organization |
+| `Source` | AppManagedScope in MVP; external policy import is future work |
+| `ValidFromUtc`, `ValidToUtc` | Revalidated authorization interval |
+| `GrantedByActorId` | Required for app-managed scope; distinct authorization/audit |
+
+Token app-role/group claims establish candidate role membership. Persisted
+scope grants constrain it; they never expand beyond current Entra authorization.
+Application Administrator changes to app-managed scope are audited. Execution
+revalidates the actor and approver's current effective grants.
+
+### AuthorizationEvidence
+
+Bounded proof captured from a freshly validated interactive Entra session:
+
+| Field | Notes |
+|---|---|
+| `ActorId` | ApplicationActor |
+| `Source` | ValidatedEntraAppRoleToken |
+| `TenantId`, `EntraObjectId` | Must match actor |
+| `AppRoleSetHash` | Canonical `roles` claims; no raw token persisted |
+| `ScopedGrantHash`, `PolicyVersion` | Current active SQL constraints |
+| `AuthenticatedAtUtc`, `TokenIssuedAtUtc`, `TokenExpiresAtUtc` | Middleware evidence |
+| `EvidenceExpiresAtUtc` | Short application policy window |
+| `SessionIdHash`, `AuthenticationContext` | Safe replay/reauth context where available |
+
+The BFF relies on Entra app-role assignments emitted in the validated `roles`
+claim; it does not require Microsoft Graph to evaluate group membership. Role
+changes are not instantaneously introspectable from a worker. Approval and
+execution request therefore require recent reauthentication, and evidence has a
+short bounded lifetime (initial proposal: 15 minutes, ratified in Phase 0).
+Execution rechecks the local scoped grant/policy hash and stops if either actor's
+evidence expired or local grants changed. Entra revocation within that bounded
+token window is a documented residual risk unless a separately consented live
+authorization provider is adopted.
+
+### ConfigurationChangeRequest
+
+Azure App Configuration is the runtime source for app-owned nonsecret dynamic
+flags and policy values. SQL is the durable change-workflow/audit source:
+
+| Field | Notes |
+|---|---|
+| `Key`, `DesiredValue` | Allowlisted nonsecret app-owned setting |
+| `ExpectedAppConfigETag` | Required compare-and-set precondition |
+| `InitiatedByActorId`, `AuthorizationEvidenceId` | Fresh Application Administrator evidence |
+| `State` | Pending, Applying, Applied, Conflict, Failed |
+| `ObservedAppConfigETag`, `AppliedAtUtc` | Read-back proof |
+| `RowVersion` | SQL workflow concurrency |
+
+The Operations worker applies a request through the Azure App Configuration
+adapter with `If-Match`, reads it back, and appends audit. The API never writes
+App Configuration directly. Static deployment capability, secrets, and absolute
+`READ_ONLY_MODE` are not app-owned keys.
+
+### ProtectedTarget and ProtectedTargetChange
+
+Protected targets are authoritative SQL rows typed as organization, project,
+principal, group, or resource. A change records action, target, reason,
+initiator/evidence, rowversion, and audit. Addition requires one Application
+Administrator; removal requires approval/evidence from a second distinct
+Application Administrator before the row is closed. The Change worker reads the
+active SQL set during every preflight and operation.
+
+### MappingOverride
+
+Explicit identity/resource correlation overrides are authoritative, validity-
+dated SQL records with source/target typed IDs, reason, initiator/evidence,
+rowversion, and audit. They cannot merge tenant/object/kind mismatches or change
+provider descriptors. `MappingOverrideApproval` stores a distinct second
+Application Administrator/evidence when policy classifies an override as
+high-impact. Applying/expiring an override writes an outbox invalidation for
+affected person/resource read models and migration plans.
+
 ## Inventory entities
 
 ### Organization
@@ -100,6 +238,7 @@ allowlisted Azure DevOps host and stores the canonical organization slug.
 | `OrganizationId`, `ProviderId` | Unique Azure DevOps project GUID |
 | `Name` | Mutable display value |
 | `State`, `Visibility`, `Revision` | Provider facts |
+| `ObservationState` | Visible, VisibilityLost, ProviderDeleted, Unknown |
 | `Description` | Optional, length bounded |
 
 ### Principal
@@ -113,6 +252,7 @@ group, or unresolved identity.
 | `Origin` | AAD, VSTS, MSA, unknown/provider value |
 | `DisplayName`, `PrincipalName`, `MailAddress` | Mutable, encrypted/masked according to policy |
 | `IdentityState` | Active, Pending, Disabled, Deleted, Unresolved |
+| `ObservationState` | Visible, VisibilityLost, ProviderDeleted, Unknown |
 | `IsProtected` | App/system/break-glass target protection |
 
 ### PrincipalIdentifier
@@ -133,11 +273,23 @@ validity. Descriptor strings are never parsed to infer identity.
 
 | Field | Notes |
 |---|---|
-| `PrincipalId` | User/service identity |
+| `PrincipalId` | Human user identity |
 | `AccessLevel` | Stakeholder, Basic, Basic+Test, VS subscriber, unknown |
 | `LicenseStatus` | Provider value |
 | `AssignmentSource` | Direct, group rule, unknown |
 | `DateCreatedUtc`, `LastAccessedUtc` | Context only; not automatic stale-removal proof |
+
+### ServicePrincipalEntitlement
+
+The API has no documented list/search equivalent to User Entitlements. Store a
+separate per-ID observation:
+
+| Field | Notes |
+|---|---|
+| `PrincipalId` | Graph service principal |
+| `AccessLevel`, `LicenseStatus` | Preview per-ID entitlement response |
+| `Coverage` | Fetched, Forbidden, Unsupported, Unknown |
+| `ObservedAtUtc` | Evidence timestamp |
 
 ### Group
 
@@ -149,6 +301,7 @@ validity. Descriptor strings are never parsed to infer identity.
 | `SpecialType` | Provider value |
 | `Description` | Mutable |
 | `CanManageMembership` | Derived capability, not merely origin |
+| `PermissionManagementPolicy` | None or PolicyManaged with owner/project/future-member semantics; not causal ownership proof |
 
 ### Team
 
@@ -207,6 +360,7 @@ unknown securable resource.
 | `ProviderKey` | Bounded canonical key where one exists |
 | `Name`, `Path` | Mutable display/search values |
 | `LifecycleState` | Active, Disabled, Deleted, Unknown |
+| `ObservationState` | Visible, VisibilityLost, ProviderDeleted, Unknown |
 
 `ResourceIdentifier` stores GUID, integer, provider path, and other typed
 identifiers. Secret service-endpoint authorization parameters and variable
@@ -366,6 +520,7 @@ Identifies a promoted snapshot for one organization and stage, such as
 ```text
 Id, OrganizationId, Stage, StartedAtUtc, CompletedAtUtc
 Coverage, Completeness, SourceVersion, SchemaHash
+CallerScopeFingerprint, VisibilityBaselineHash, DeletionConfirmationPolicy
 SupersedesGenerationId
 ```
 
@@ -407,11 +562,13 @@ CapabilityUnavailable
 
 Version fields include:
 
+- `CreatedByActorId` and creation `AuthorizationEvidenceId`
 - target organization/user/group
 - selected direct findings
 - baseline and proposed evaluation snapshot IDs
 - baseline canonical hash and source generation set
 - comparisons, unknowns, cohort blast radius, and warnings
+- transitive cohort hash and any approved all-current/future-member group policy
 - ordered operations and dependencies
 - plan schema/algorithm versions
 - expiration
@@ -435,9 +592,9 @@ Operation types are explicit:
 
 ```text
 AddGroupMembership
-RemoveGroupMembership
+RemoveGroupMembership        ManualOnly in MVP
 AddPermissionBits
-RemovePermissionBits
+RemovePermissionBits         automatic for direct removal; group cleanup ManualOnly
 CreateGroup               post-MVP
 AddTeamMember             represented through membership
 RemoveTeamMember          represented through membership
@@ -449,18 +606,25 @@ VerificationBarrier
 | Field | Notes |
 |---|---|
 | `PlanVersionId`, `PlanHash` | Exact approved content |
-| `ApproverPrincipalId` | Human app user |
+| `ApproverActorId` | Human `ApplicationActor`, never an Azure DevOps principal |
+| `AuthorizationEvidenceId`, `ScopedGrantHash` | Fresh Entra app-role evidence and local scope used to approve |
 | `ApprovedAtUtc`, `ExpiresAtUtc` | Time bound |
 | `AcknowledgedExpansionHash` | Exact gains/cohort impact |
 | `Decision`, `Comment` | Decision record |
 
 Database constraints/application policy prevent a requester from approving
-their own plan.
+their own plan. The approver must differ from both the plan-version creator and
+the execution requester. The plan creator and execution requester may be the
+same human only when that actor independently holds both required roles.
 
 ### MigrationExecution and OperationAttempt
 
 Execution stores state-machine status, lease, actor, live preflight hash,
 verification/compensation outcomes, and timestamps.
+`RequestedByActorId`, requester/approver references point to `ApplicationActor`
+and capture
+the `AuthorizationEvidenceId` and effective scoped role-grant hash used at that
+decision.
 
 An attempt is append-only:
 
@@ -469,6 +633,7 @@ AttemptId, OperationId, Number, IdempotencyKey
 StartedAtUtc, CompletedAtUtc
 ProviderCorrelationId
 Outcome = NoChange|Succeeded|Failed|InDoubt
+OwnershipEvidence = NotApplicable|ProviderResultOnlyNotCausal|Ambiguous
 ErrorCode / redacted error
 Observed pre/post-state hashes
 ```
@@ -476,11 +641,14 @@ Observed pre/post-state hashes
 ### VerificationResult and RollbackPlan
 
 Verification records each affected coordinate, expected/actual outcome,
-authority, convergence attempts, and final `Verified|Failed|Inconclusive`.
+authority, convergence attempts, whether selected direct bits were suppressed,
+surviving replacement path, and final `Verified|Failed|Inconclusive`.
 
-Rollback is a new immutable plan generated from operations this execution
-actually owns. It has its own live baseline, preview, approval, and audit. It
-cannot remove pre-existing replacement membership/permissions.
+Rollback/restoration is a new immutable plan generated from actual operation
+attempts. Exact captured direct access can be restored automatically. Additive
+group bits/membership are ManualOnly cleanup candidates because Azure DevOps
+cannot prove causal ownership of an identical fact; their current cohort/target
+impact, preview, external observation, verification, and audit remain durable.
 
 ### AuditEvent
 
@@ -489,7 +657,7 @@ Append-only event:
 ```text
 Sequence
 TimestampUtc
-Actor and effective application role
+ApplicationActorId and effective scoped role-grant hash
 Organization/project/resource/target IDs
 Plan/version/execution/operation IDs
 Event type and outcome
@@ -524,6 +692,16 @@ supports the same behavior.
 At minimum:
 
 - unique organization canonical URL
+- unique application actor by tenant/object ID
+- indexes for unexpired authorization evidence by actor and expiry
+- unique pending configuration change per key plus expected App Configuration
+  ETag/SQL rowversion
+- unique active protected target and distinct initiator/approver constraint on
+  removal
+- unique current mapping override per typed source/scope with validity history
+- unique current directory subject by tenant/object ID/kind
+- unique current confirmed principal-directory link
+- indexes for active application role grants by actor/organization/project
 - unique active external identifier by organization/scheme/value
 - unique provider project/resource key within organization
 - unique active direct membership edge
@@ -541,10 +719,18 @@ At minimum:
 The exact physical indexes are validated with representative enterprise data
 and query plans, not guessed from the conceptual model.
 
-## Deletion and retention
+## Deletion, visibility loss, and retention
 
-- Provider disappearance creates a tombstone only after a complete successful
-  authoritative generation.
+- Absence from a completed page set is only a deletion candidate. Tombstone
+  requires a stage whose authority/coverage is unchanged plus an authoritative
+  direct confirmation such as provider `404` under sufficient visibility or an
+  explicit provider deleted state.
+- `403`, reduced project/repository visibility, count anomalies, or an
+  unconfirmable missing object sets `ObservationState=VisibilityLost` (or
+  `Unknown`) and retains the last known fact. It never becomes
+  `ProviderDeleted`.
+- A large/unexpected disappearance quarantines the candidate generation and
+  requires confirmation probes/operator visibility before promotion.
 - Targeted refresh never infers global deletion.
 - Historical identifiers and plan/audit facts remain immutable under the
   approved retention policy.
@@ -557,8 +743,13 @@ and query plans, not guessed from the conceptual model.
 
 - [ ] EF migrations enforce organization isolation and key uniqueness.
 - [ ] Descriptor remapping preserves identifier history.
+- [ ] Cross-organization person links require tenant/object/kind evidence and
+      filter each organization through current app authorization.
+- [ ] App actors, scoped grants, approvals, and audit attribution remain separate
+      from Azure DevOps principals.
 - [ ] Team and group membership produce one canonical graph.
-- [ ] Partial generation tests cannot create false deletions.
+- [ ] Partial, forbidden, visibility-reduced, and anomalous complete generations
+      cannot create false deletions.
 - [ ] Unknown bits/tokens/actions survive read-normalize-write simulations.
 - [ ] Plan/audit snapshots reproduce the evaluation using recorded versions.
 - [ ] Audit database role cannot update or delete events.

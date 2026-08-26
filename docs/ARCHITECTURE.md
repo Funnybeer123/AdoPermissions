@@ -6,14 +6,17 @@ Last reviewed: 2026-08-26
 ## Executive summary
 
 Azure DevOps Access Manager will be a modular monolith in one repository with
-three separately deployed runtimes:
+four separately deployed runtimes:
 
-1. **Web/API** — a same-origin React application and ASP.NET Core BFF/API. It
-   serves normalized read models, analysis, plans, and approvals. It has no
-   Azure DevOps write credential.
-2. **Sync worker** — reads explicitly configured Azure DevOps organizations
+1. **Web/API** — a same-origin web application (React is the candidate pending
+   ADR 0008) and ASP.NET Core BFF/API. It serves normalized read models,
+   analysis, plans, and approvals. It has no Azure DevOps write credential.
+2. **Operations worker** — dispatches the transactional outbox, exports the
+   append-only audit stream to immutable storage, and runs internal retention/
+   maintenance work. It has no Azure DevOps identity.
+3. **Sync worker** — reads explicitly configured Azure DevOps organizations
    using a dedicated read identity and publishes normalized data generations.
-3. **Change worker** — has no public ingress, owns the separate write identity,
+4. **Change worker** — has no public ingress, owns the separate write identity,
    reloads approved plans from the database, revalidates live state, executes
    allowlisted operations, and verifies their result.
 
@@ -24,9 +27,10 @@ projects and never become the domain model.
 
 The first release is read-only. The implemented MVP ends with a deliberately
 narrow write slice: add a user to an existing native Azure DevOps group, add
-supported Project/Git Allow bits to that group, verify replacement access, and
-remove only the exact redundant direct user bits. Every other write remains
-disabled until separately proven.
+explicitly allowlisted Project/Git Allow bits when group-governance rules permit,
+verify a counterfactual that suppresses the direct bits, and remove only those
+exact redundant user bits. Every other write remains disabled until separately
+proven.
 
 ## Repository assessment
 
@@ -53,8 +57,8 @@ flowchart LR
     API --> CFG[App Configuration<br/>flags and kill switches]
     API --> KV[Key Vault]
 
-    SQL --> DISP[Outbox dispatcher]
-    DISP --> BUS[(Service Bus<br/>sync and change queues)]
+    SQL --> OPS[Container App<br/>Operations worker<br/>no Azure DevOps identity]
+    OPS --> BUS[(Service Bus<br/>sync and change queues)]
     BUS --> SYNC[Container App<br/>Sync worker<br/>read identity]
     BUS --> CHANGE[Container App<br/>Change worker<br/>write identity]
 
@@ -64,8 +68,9 @@ flowchart LR
     SYNC --> SQL
     CHANGE --> SQL
 
-    SQL --> AUDIT[Immutable audit export<br/>Blob / Log Analytics]
+    OPS --> AUDIT[Immutable audit export<br/>WORM-capable Blob]
     API --> OTEL[OpenTelemetry]
+    OPS --> OTEL
     SYNC --> OTEL
     CHANGE --> OTEL
     OTEL --> MON[Application Insights / Azure Monitor]
@@ -81,11 +86,11 @@ shared modules with one release train.
 |---|---|---|
 | Backend | .NET 10 LTS, ASP.NET Core 10, EF Core 10 | The project is greenfield in August 2026. .NET 8 support ends in November 2026; .NET 10 is supported through November 2028. |
 | HTTP resilience | Typed `HttpClient` plus `Microsoft.Extensions.Http.Resilience` | Current .NET integration, endpoint-specific policies, and safe handling of ambiguous writes |
-| Frontend | React 19, TypeScript, Vite | Mature component ecosystem and fast typed development |
-| Design system | Fluent UI React v9 | Enterprise controls and an accessibility foundation aligned with Microsoft ecosystems |
-| Server state | TanStack Query | Query cancellation, caching, invalidation, and refresh states; never execution authority |
-| Large tables | TanStack Table plus TanStack Virtual | Server-side filtering/sorting with bounded browser memory |
-| Access graphs | `@xyflow/react` behind an adapter; deterministic layered layout | Good interactive graph fit, with progressive expansion and a mandatory accessible tree/table alternative |
+| Frontend | Candidate: React 19, TypeScript, Vite | Mature component ecosystem; final selection follows ADR 0008 spike |
+| Design system | Candidate: Fluent UI React v9 | Enterprise controls and an accessibility foundation; spike must validate |
+| Server state | Candidate: TanStack Query | Query cancellation/caching; browser cache is never execution authority |
+| Large tables | Candidate: TanStack Table plus TanStack Virtual | Server paging/virtualization must pass performance/accessibility spike |
+| Access graphs | Candidate: `@xyflow/react` behind an adapter and deterministic layered layout | Selection remains pending the accessibility/performance/maintenance spike in ADR 0008 |
 | Production database | Azure SQL | Transactions, relational integrity, row-version concurrency, queryability, backup/restore, and mature Azure operations |
 | Development/test database | SQL Server container/Testcontainers | Production-compatible semantics; SQLite is allowed only for a disposable UI demo |
 | Messaging | Azure Service Bus | Durable delivery, dead lettering, duplicate detection, managed identity, and worker isolation |
@@ -109,6 +114,7 @@ add every library preemptively.
   /AccessManager.Providers.AzureDevOps
   /AccessManager.Providers.Entra
   /AccessManager.Providers.Fake
+  /AccessManager.Workers.Operations
   /AccessManager.Workers.Sync
   /AccessManager.Workers.Change
 /tests
@@ -132,6 +138,7 @@ add every library preemptively.
 flowchart TD
     WEB[Web] --> API[API]
     API --> APP[Application]
+    OPS[Operations worker] --> APP
     SYNC[Sync worker] --> APP
     CHANGE[Change worker] --> APP
     APP --> DOMAIN[Domain]
@@ -148,6 +155,8 @@ Rules enforced by architecture tests:
 - Azure DevOps wire DTOs do not cross the provider boundary.
 - API controllers do not call provider clients or EF `DbContext` directly.
 - Only the change worker composes `IAccessMutationProvider`.
+- Only the operations worker composes outbox dispatch and immutable audit-export
+  credentials.
 - The web/API runtime cannot resolve the Azure DevOps write credential.
 - Organization scope is explicit on every repository query and command.
 
@@ -174,8 +183,10 @@ Core interfaces:
 
 ```text
 IOrganizationRegistry
+IAuthorizationEvidenceService
 IAccessInventoryProvider
 IAccessMutationProvider
+IEntraDirectoryProvider
 IProviderCapabilityService
 IProjectService
 IIdentityService
@@ -189,6 +200,7 @@ IMigrationPlanner
 IMigrationExecutor
 IMigrationVerifier
 IAuditWriter
+IAuditExporter
 IClock
 ```
 
@@ -217,6 +229,8 @@ and the Contoso scenarios.
 ### API/BFF
 
 - Handles Entra sign-in server-side and issues secure same-origin sessions
+- Captures bounded, token-free authorization evidence from fresh validated app
+  role claims for approval/execution requests
 - Enforces application authorization on every operation
 - Serves `/api/v1` JSON and the built SPA
 - Returns RFC 9457 problem details, stable error codes, freshness, coverage, and
@@ -225,6 +239,14 @@ and the Contoso scenarios.
   mutations inline
 
 ### Workers
+
+The operations worker has no Azure DevOps identity. It dispatches outbox rows,
+exports audit events to WORM-capable Blob storage with a durable watermark, and
+applies audited dynamic-setting requests to App Configuration with ETag and
+read-back verification. It also runs internal maintenance/retention work. The
+change worker fails closed when
+the immutable export is failed or its watermark exceeds the ratified threshold
+(initial proposed maximum lag: 15 minutes).
 
 The sync worker can only resolve the read identity. The change worker can only
 consume approved plan IDs, has no public ingress, and independently verifies:
@@ -244,8 +266,11 @@ authoritative state from SQL.
 The normalized model is specified in [DATA-MODEL.md](DATA-MODEL.md). Important
 principles:
 
-- Internal IDs are stable and organization-scoped.
+- Provider principal/resource IDs are stable and organization-scoped; app actors
+  and cross-organization directory subjects are tenant/object scoped.
 - External identifiers have a scheme and validity interval.
+- Cross-organization links require tenant/object/kind evidence and every
+  aggregate query reapplies organization/project authorization.
 - A team links to its generated group principal rather than creating a second
   membership graph.
 - Assignment source, resource inheritance, effect, and evaluation authority are
@@ -316,7 +341,8 @@ The algorithm and state machine are in
 
 ```text
 Draft -> Inventory -> Proposed -> Validated -> Approved
-      -> Live preflight -> Add replacement -> Verify replacement
+      -> Live preflight -> Add replacement
+      -> Verify direct-bit-suppressed counterfactual
       -> Remove exact direct bits -> Final verification -> Audit
 ```
 
@@ -325,9 +351,11 @@ canonically hashed, time-limited, and bound to source generations. Approval
 binds the exact plan hash and all acknowledged expansion. Execution uses an
 organization lease and operation-level preconditions.
 
-No direct access is removed before replacement access is visible through a live
-verification path with sufficient authority. A timed-out mutation enters
-`InDoubt` and is reconciled before any retry or subsequent operation.
+No direct access is removed before live membership/group facts prove a
+`DerivedSupported` counterfactual with the selected direct bits suppressed. The
+final live verification then uses provider evidence after actual removal. A
+timed-out mutation enters its phase-specific `InDoubt` state and is reconciled
+before any retry or subsequent operation.
 
 ## API contract
 
@@ -357,8 +385,10 @@ Primary routes:
 
 ```text
 /                         actionable access overview
-/users                    user search
-/users/{id}               user explorer and access graph
+/people                   cross-organization person search
+/people/{id}              authorized cross-organization access explorer
+/organizations/{orgId}/principals/{id}
+                          organization-specific principal evidence
 /groups/{id}              group explorer and cohort impact
 /projects/{id}            project explorer
 /permissions              server-paged permission matrix
@@ -368,6 +398,12 @@ Primary routes:
 /admin/organizations      organization registry and capabilities
 /admin/sync               freshness, issues, and targeted refresh
 ```
+
+The person aggregate is a tenant-scoped Entra directory subject linked to its
+organization-specific Azure DevOps principals by tenant + object ID + subject
+kind. Relinked, MSA, unresolved, or ambiguous identities are never merged by
+email. Every cross-organization response reapplies the current actor's
+organization/project scopes and reports omitted/ambiguous coverage.
 
 The UI does not hide uncertainty. Every result can expose:
 

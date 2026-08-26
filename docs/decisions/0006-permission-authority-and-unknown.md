@@ -22,6 +22,9 @@ authoritatively calculates every resource/action for an arbitrary selected user.
   outcome, constraints, authority, and completeness.
 - Prefer provider-computed evidence where its exact contract applies.
 - Use `DerivedSupported` only for a complete, tested interpreter case.
+- Replacement verification derives a counterfactual with only selected direct
+  user bits suppressed; the current provider-effective result is not proof while
+  those bits remain.
 - Represent all incomplete/unsupported/disagreeing cases as `Unknown`.
 - Unknown is visible to users and always blocks automatic removal.
 - Preserve raw tokens and unknown bits without interpreting or rewriting them.
@@ -50,6 +53,7 @@ authoritatively calculates every resource/action for an arbitrary selected user.
 
 - Property tests for masks/tokens/membership DAGs and Unknown preservation.
 - Sandbox precedence matrix for Project/Git.
+- Direct-only versus direct+replacement counterfactual tests.
 - Git comparisons with Permissions Report where supported.
 - Provider/local disagreement blocks plans and emits drift.
 - State-machine tests prove Unknown cannot reach removal.

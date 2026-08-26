@@ -5,10 +5,11 @@ Date: 2026-08-26
 
 ## Context
 
-The product has one cohesive domain but three materially different security and
+The product has one cohesive domain but four materially different security and
 workload profiles:
 
 - interactive read/plan API
+- internal outbox/audit/retention operations with no Azure DevOps identity
 - high-volume background inventory
 - rare, sensitive Azure DevOps mutations
 
@@ -22,13 +23,15 @@ Use one repository/release and shared Domain/Application modules, with separate
 composition roots and deployments:
 
 1. Web/BFF/API
-2. Sync worker
-3. Change worker
+2. Operations worker
+3. Sync worker
+4. Change worker
 
 Enforce module references with architecture tests. The web and sync composition
 roots cannot resolve `IAccessMutationProvider`; only the change worker can.
-Workers communicate through SQL state, a transactional outbox, and Service Bus
-job IDs.
+Only the operations worker dispatches the SQL transactional outbox and exports
+audit events to WORM-capable storage. Workers communicate through SQL state and
+Service Bus job IDs.
 
 ## Consequences
 

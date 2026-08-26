@@ -66,18 +66,28 @@ Property/state-machine tests prove:
 8. A partial provider page set cannot publish authoritative empty data.
 9. A rollback cannot remove state that existed before its execution.
 10. Cross-organization data cannot be joined or returned without explicit scope.
+11. A completed page set after caller visibility loss cannot prove deletion.
+12. Current effective access cannot prove replacement while selected direct bits
+    remain; a suppressed counterfactual must independently Allow.
+13. Application actors/role grants are never substituted with Azure DevOps
+    principals.
 
 ## Unit and property tests
 
 ### Identity and membership
 
 - Graph, storage-key, legacy, and origin identifiers remain distinct
+- tenant/object/kind person correlation across organizations, ambiguity/relink,
+  and no email auto-merge
+- ApplicationActor and scoped role-grant current/revoked hash behavior
 - descriptor remap creates history rather than a duplicate principal
 - team correlates to one group principal/membership graph
 - random membership DAGs
 - cycles, self edges, duplicate edges, and duplicate paths
 - depth/node/edge/query limits
 - partial Entra graph and unresolved principals
+- service principal inheriting from an Entra group while absent from Azure DevOps
+  member listing; dynamic-group latency remains Unknown
 
 ### Namespace and permission
 
@@ -93,6 +103,8 @@ Property/state-machine tests prove:
 - group Deny versus Allow combinations
 - administrator/system exception produces Unknown when unsupported
 - provider-computed/local evaluation agreement and drift
+- exact per-subject token walk and group result combination
+- direct-bit-suppressed replacement counterfactual and surviving group path
 - direct/group/team/Entra/resource-inherited classifications
 
 ### Analysis
@@ -110,11 +122,15 @@ Property/state-machine tests prove:
 
 - deterministic canonical JSON/hash across process/culture/time zone
 - any plan edit invalidates approval
-- expiration and requester/approver separation
+- plan creator/approver/execution-requester pairwise constraints and role evidence
+- bounded AuthorizationEvidence app-role/scoped-grant/policy hashes, expiry and
+  revocation-window behavior
 - topological operation ordering
 - operation precondition/inverse construction
 - idempotent membership and permission operation
 - exact-bit add/remove
+- exact user-bit restoration and ManualOnly additive-cleanup preview/observation
+- current/future-member governance acknowledgement and cohort hash
 - state-machine legal/illegal transitions
 - operation cap and feature/capability gates
 - rollback ownership and reverse dependencies
@@ -136,6 +152,8 @@ The Azure DevOps adapter is tested with sanitized official/recorded fixtures:
 - fixed filters/order across pages
 - unknown JSON fields and enum values
 - empty versus forbidden/partial result
+- human User Entitlements body continuation versus per-ID service-principal
+  entitlement coverage
 - identity descriptor translation
 - ACL extended information and synthetic rows
 - unknown namespace/action bits
@@ -149,7 +167,7 @@ Error matrix:
 200 + X-RateLimit-Delay
 400 malformed/unsupported
 401 expired/invalid token
-403 permission-trimmed/forbidden capability
+403 forbidden/caller-visibility loss
 404 absent/eventual visibility
 408 timeout
 409 conflict where exposed
@@ -175,12 +193,19 @@ Use SQL Server Testcontainers, not EF InMemory and not SQLite, for correctness:
 - rowversion/optimistic concurrency
 - stage generation promotion and active pointer
 - partial stage cannot tombstone
+- complete generation after permission/visibility loss is quarantined
+- direct 403 produces VisibilityLost; authoritative 404 can produce
+  ProviderDeleted
 - targeted refresh deletion boundary
 - membership closure rebuild
 - namespace schema drift invalidation
 - transactional outbox commit/rollback
 - worker leases and duplicate job handling
 - append-only audit database permissions/hash chain
+- configuration-change rowversion/ETag workflow and protected-target
+  initiator/approver constraint
+- mapping-override second-approval, validity history and transactional
+  read-model/plan invalidation
 - plan/approval/execution uniqueness and expiration
 - crash/restart at every migration transition
 - retention/pseudonymization jobs
@@ -235,6 +260,7 @@ Fault controls:
 - fail on selected page/call
 - eventual membership/ACE visibility
 - concurrent external state mutation
+- caller visibility loss after a complete prior generation
 - timeout before/after commit
 - worker termination hook
 - descriptor remap
@@ -249,6 +275,7 @@ At minimum:
 | Scenario | Expected behavior |
 |---|---|
 | Existing access equals proposed | Plan may proceed; source becomes group-derived |
+| Current direct ACE alone supplies access | Suppressed replacement counterfactual fails; block before removal |
 | Proposed group provides less | Block |
 | Proposed group provides more | Require exact acknowledgement; admin gain may block by policy |
 | User direct Deny selected | Block automatic migration/removal |
@@ -256,18 +283,27 @@ At minimum:
 | Nested native groups | Resolve and explain |
 | Entra path incomplete | Unknown; block destructive action |
 | Group change affects members | Show cohort impact and require acknowledgement |
+| Member joins around group ACE write | Cohort recheck plus approved all-current/future-member policy; otherwise group modification is blocked |
 | State changed after planning | Mark plan stale |
 | State changed immediately before operation | Stop on precondition |
 | Desired edge/bit already exists | `NO_CHANGE`, audit, continue |
-| Add replacement succeeds, verify fails | Keep direct access; failed safe |
+| Add replacement succeeds, verify fails | Keep direct access; ReplacementVerificationFailedSafe + ManualCleanupRequired |
 | Mutation response lost but committed | Reconcile, record recovered success |
 | Mutation response lost and not committed | Retry only after reconciliation and bounded policy |
 | Direct removal partly succeeds | Partially applied; restore exact captured bits |
+| Crash leaves removal outcome unknown | Reconcile every selected bit; restore confirmed-absent bits only |
+| Exact bit remains Unknown after bounded reads | Do not blind-write; CompensationFailed/manual incident |
 | Final verification fails | Compensate access first |
+| Direct user bit was removed | Restore the exact captured bit and verify before any cleanup |
+| Added group bit/membership pre-existed | Rollback must not remove it |
+| External actor adds identical bit/edge in race window | Ownership is ambiguous; cleanup is ManualOnly |
+| New group member relies on candidate cleanup bit | Preview shows loss/Unknown and remains ManualOnly |
+| Successful migration is later rolled back | New approval restores exact direct bits, verifies, then requires manual additive cleanup |
 | Compensation precondition changed | Stop/manual escalation; do not overwrite external state |
 | Audit attempt cannot persist | No provider call |
 | Audit result missing after crash | `InDoubt` recovery and live reconciliation |
 | Kill switch changes mid-run | Stop before next operation |
+| Removal flag enabled without restoration | Configuration/preflight rejects it |
 | Namespace schema changes | Block and invalidate capability |
 
 Run the matrix against fake provider and supported live sandbox operations.
@@ -276,7 +312,13 @@ Run the matrix against fake provider and supported live sandbox operations.
 
 - authentication/unauthenticated behavior
 - every role × organization/project scope × endpoint
+- ApplicationActor/scoped-grant revalidation and Azure DevOps-principal
+  substitution denial
+- fresh app-role authorization evidence, expiry, local revoke/policy change, and
+  no raw-token persistence
 - IDOR with valid IDs from another organization
+- person aggregation authorizes each linked organization and reports omitted/
+  ambiguous coverage
 - RFC 9457 error shape and safe diagnostics
 - opaque cursor, maximum page, sort/filter validation
 - freshness/coverage metadata
@@ -284,6 +326,10 @@ Run the matrix against fake provider and supported live sandbox operations.
 - command idempotency and duplicate submission
 - CSRF for every state-changing endpoint
 - plan hash/approval/execution gates
+- persisted creator/approver/requester actor/evidence attribution
+- dynamic-setting request/App Configuration conflict and two-person
+  protected-target removal
+- mapping propose/approve/expire, high-impact second admin and invalidation status
 - rate limits for search, refresh, export, plan, approval, execution
 - exports neutralize CSV formula values and enforce limits
 - OpenAPI breaking-change check and generated TypeScript client compile
@@ -313,7 +359,7 @@ Accessibility baseline: WCAG 2.2 AA.
 
 Playwright E2E:
 
-- find Evan by email and open access graph
+- find Evan by email and open the authorized cross-organization person graph
 - inspect why a repository permission exists
 - switch user/group/project views
 - filter direct/denied/admin findings
@@ -345,13 +391,18 @@ Read proofs:
 
 Write proofs:
 
-- read identity cannot call mutation APIs
+- sync runtime has no mutation client; identity-level mutation probes either fail
+  or record an explicitly reviewed residual ACL capability
 - write identity cannot mutate outside allowlisted sandbox scope
-- membership add/read/remove and idempotent re-entry
-- additive exact group Allow bit
+- membership add/check and raw probe cleanup; app executor exposes no automatic
+  membership removal
+- additive Project `GENERIC_READ` and each allowlisted Git bit
 - exact selected-bit removal
+- exact selected-bit restoration
+- cleanup ownership ambiguity and current-cohort gates
 - unrelated/unknown bit preservation
-- live replacement and final verification
+- direct-bit-suppressed replacement and final provider verification
+- cohort race injection and current/future-member policy
 - concurrent external change detection
 - propagation timing and bounded timeout
 - process termination/recovery after every remote call
@@ -373,6 +424,7 @@ Measure:
 - full and incremental sync throughput/TSTU behavior
 - closure rebuild and user access analysis
 - direct finding and recommendation queries
+- recommendation candidate/cohort/time budgets and partial-result latency
 - SQL query plans, logical reads, index use, and database growth
 - API p50/p95/p99 under server pagination
 - browser memory/interaction for large tables
@@ -390,7 +442,8 @@ before production approval. Do not invent them without deployment/user needs.
 - provider throttling and prolonged 5xx
 - worker scale-out and termination
 - outbox dispatch crash
-- audit export delay/failure
+- operations-worker/outbox failure and immutable audit export watermark beyond
+  the write-gate threshold
 - backup restore to an isolated environment
 - regional recovery starts in read-only mode
 

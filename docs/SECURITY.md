@@ -14,20 +14,22 @@ write identity.
 flowchart LR
     B[Browser] -->|App token / secure session| W[Web + BFF/API]
     W -->|App data| D[(Azure SQL)]
-    W -->|Intent IDs| Q[(Service Bus)]
+    D --> O[Operations worker<br/>outbox + audit export]
+    O -->|Intent IDs| Q[(Service Bus)]
     Q --> S[Sync worker]
     Q --> C[Change worker]
     S -->|Read identity| A[Azure DevOps]
     C -->|Write identity| A
     S -. separate consent .-> G[Microsoft Graph]
     W --> K[Key Vault / App Configuration]
-    D --> I[Immutable audit export]
+    O --> I[WORM-capable audit Blob]
 ```
 
 Boundaries:
 
 - Browser to application
-- Web/API to data and queue
+- Web/API to SQL intent/outbox (no Service Bus send right)
+- Operations worker to queue and immutable audit storage
 - Sync runtime/read identity to Azure DevOps
 - Change runtime/write identity to Azure DevOps
 - Optional Entra provider to Microsoft Graph
@@ -113,11 +115,43 @@ Role assignments can be scoped to organization and optionally project. Every
 HTTP endpoint and Application command enforces the scope; UI visibility is not
 security.
 
+`ApplicationActor` is keyed by Entra tenant/object ID and remains separate from
+organization-scoped Azure DevOps principals. Current Entra app-role/group
+membership establishes candidate roles; persisted `ApplicationRoleGrant` rows
+constrain organization/project scope and never expand beyond Entra
+authorization. Application Administrator changes to app-managed scopes are
+audited. Approval/execution revalidates both actors' current role-grant hashes.
+Effective authorization is the intersection of the validated Entra app role and
+an active local scope grant; absence denies access, and organization-wide scope
+must be explicit.
+The initial Application Administrator scope is bootstrapped through a reviewed
+deployment record, not self-granted through the UI; subsequent changes are
+audited and cannot grant a role absent from the actor's Entra `roles` claim.
+
+MVP authorization evidence comes from a freshly validated Entra token/session
+at each interactive approval or execution request:
+
+- Entra app roles are assigned to users/groups on the Enterprise Application and
+  arrive in the validated `roles` claim; MVP does not query Microsoft Graph to
+  calculate them.
+- The BFF requires recent reauthentication and persists only an
+  `AuthorizationEvidence` hash of actor, app-role set, token issue/auth time,
+  local scoped-grant hash, and policy version—never the token.
+- Initial proposed evidence lifetime is 15 minutes and cannot exceed token/
+  session expiry; Phase 0 policy ratification can shorten it.
+- The change worker rechecks evidence expiry and current SQL scoped-grant/policy
+  hashes for requester and approver immediately before work.
+- Entra app-role revocation cannot be instantaneously introspected by the worker.
+  Revocation inside the bounded evidence/token window is a documented residual
+  risk. A future live authorization provider would require separate consent and
+  an ADR.
+
 Execution requires:
 
 - requester still has Access Administrator scope
 - approver still has Migration Approver scope
-- requester and approver are distinct humans
+- approver is distinct from both the plan creator and execution requester;
+  creator/requester may match only with both roles
 - approval hash/expiry/acknowledgements are valid
 - target is not protected
 
@@ -150,15 +184,35 @@ Every layer checks the relevant gate:
 
 Failure to retrieve flags/capabilities denies the write. A kill-switch exercise
 is part of deployment acceptance.
+Direct-removal enablement is invalid unless exact restoration code, feature
+flag, provider capability, and audit path are also enabled; the worker rechecks
+that invariant before each removal.
+
+Application Administrator can manage app-owned dynamic flags, mappings, policy
+values, and protected targets only within static deployment limits. Every change
+requires fresh authorization evidence, optimistic concurrency, and audit.
+Removing a protected target requires a second distinct Application
+Administrator. Secrets, workload identity grants, static `READ_ONLY_MODE`, and
+deployment capability remain outside the application.
+
+Dynamic flag/policy requests are durable SQL workflows applied only by the
+Operations worker to Azure App Configuration using the expected ETag and
+read-back verification. Protected targets and typed mapping overrides are
+authoritative SQL aggregates; the API has neither App Configuration write
+credentials nor a bypass around their approval/concurrency rules. High-impact
+mapping overrides require a second distinct Application Administrator and
+invalidate affected read models/plans transactionally.
 
 ## Least privilege in Azure DevOps
 
 The read identity needs only tested visibility for registered organizations:
 
-- organization membership and appropriate license
-- view instance/project information
+- explicit organization membership and directly assigned appropriate license
+- `View instance-level information`
+- `View project-level information` in every registered project
+- repository `Read` where repository inventory is required
 - read the selected identity/project/team/repository APIs
-- read security namespace/ACL data for allowlisted projects/resources
+- the minimum ACL visibility that the Phase 0 probe proves
 
 The write identity:
 
@@ -166,12 +220,26 @@ The write identity:
 - is not a member of broad administrator groups
 - is granted membership-management and `Manage permissions` only where sandbox
   tests prove the exact MVP operations need it
+- is policy-limited to native-group membership plus Project `GENERIC_READ` and
+  Git `GenericRead`, `GenericContribute`, `CreateBranch`, and `CreateTag` at
+  allowlisted project/repository scopes
 - cannot target its own principal, groups, or ACLs
 - is separately licensed and monitored
 
-Some Azure DevOps APIs advertise broad scopes such as `vso.security_manage` or
-`vso.environment_manage`; token scope is only one authorization layer. Resource
-permissions and application allowlists narrow actual use.
+Security read and write APIs advertise the same broad
+`vso.security_manage` delegated/PAT scope; Azure DevOps does not document a
+read-only security scope. Managed identities request `/.default`, so token scope
+does not create read-only isolation. Phase 0 must prove whether the sync identity
+can query required ACLs without a resource permission that could also mutate
+them. If not, “read identity” means the application/provider exposes no mutation
+client and the runtime lacks the change identity, but a compromised identity may
+retain residual provider capability. That residual risk must be accepted or the
+ACL feature redesigned; it must not be hidden.
+
+Resource lifecycle scopes such as `vso.code_manage`,
+`vso.environment_manage`, and `vso.serviceendpoint_manage` are distinct from
+`vso.security_manage` used by ACL/role assignment APIs. Resource permissions,
+runtime composition, and application allowlists further narrow actual use.
 
 The exact least-privilege grants are an empirical Phase 0 deliverable. If Azure
 DevOps cannot express a safe boundary for an operation, that operation is not
@@ -183,7 +251,9 @@ automated.
 - Remaining certificates/secrets live in Key Vault and are accessed through
   managed identity.
 - No secrets in repository, build logs, environment files, images, or browser.
-- Tokens are opaque and never decoded for claims.
+- Treat Azure DevOps and Microsoft Graph access tokens received as a client as
+  opaque. Validate ID tokens and tokens issued for this application's own API
+  through supported middleware; never parse Microsoft API access-token claims.
 - Authorization headers, cookies, tokens, PATs, query strings containing
   descriptors/tokens, and request/response bodies are redacted.
 - Service endpoint authorization parameters and variable values are dropped at
@@ -246,9 +316,11 @@ Integrity controls:
 
 - application database role can append, not update/delete audit rows
 - per-organization sequence and previous-event hash form a tamper-evident chain
-- periodic signed digest/export to separately permissioned immutable Blob
-  storage or security workspace
-- export lag alerting
+- continuous signed digest/export by the no-Azure-DevOps operations worker to
+  separately permissioned WORM-capable Blob storage; Log Analytics is a
+  searchable monitoring copy, not the immutable authority
+- export watermark and lag alerting; change execution fails closed on export
+  failure or lag beyond the ratified threshold (initial proposal: 15 minutes)
 - retention/immutability policy protected from application identities
 - all audit access and export is audited
 
@@ -265,13 +337,13 @@ result.
 | Threat | Primary controls | Residual risk / response |
 |---|---|---|
 | Compromised administrator | MFA, CA, PIM, scoped independent roles, two-person approval, plan expiry, operation limits | Two colluding privileged users can authorize harm; maintain independent audit and alerts |
-| Compromised web/API identity | No Azure DevOps identity, least SQL/Bus rights, input/authz controls | Can create malicious plan intent; worker reloads and independently validates |
-| Compromised sync identity | Read-only Azure DevOps rights, no change credential | Inventory is sensitive; isolate, monitor, rotate/disable identity |
+| Compromised web/API identity | No Azure DevOps identity or Service Bus send right, least SQL rights, input/authz controls | Can create malicious plan intent/outbox state; operations/change workers reload and independently validate |
+| Compromised sync identity | No mutation client/change credential, minimum tested provider rights, explicit residual-capability record | ACL APIs may not offer pure read scope; isolate, monitor, and disable identity on compromise |
 | Compromised change identity | No public ingress, narrow resource grants, operation allowlists, protected targets, kill switch | Azure DevOps permission granularity may be broader; sandbox proof and monitoring required |
 | Credential leakage | Managed identities, Key Vault, no production PAT, redaction | Runtime memory compromise still possible; isolate runtime and contain network/RBAC |
 | Privilege escalation in app | Nonhierarchical scoped roles, deny-by-default policies, authz matrix tests | Misconfiguration remains possible; assignment required, PIM, reviews |
-| IDOR/cross-org read | Organization scope in every command/query and FK, authorization tests | New endpoints can regress; architecture/API tests required |
-| Unexpected access expansion | Before/after plus group-cohort impact, explicit acknowledgement | External changes can occur later; audit and targeted reconciliation |
+| IDOR/cross-org read | Organization scope in every provider query/FK; tenant-scoped person link; per-linked-org authorization tests | New aggregation endpoints can regress; architecture/API tests required |
+| Unexpected access expansion | Before/after, transitive cohort hash, explicit all-current/future-member policy for group changes | External changes can occur later; audit and targeted reconciliation |
 | Accidental access removal | Add-first, authoritative verification, exact-bit removal, compensation | Eventual consistency can be inconclusive; stop with original access |
 | API replay/duplicate | Immutable hash, expiry, execution uniqueness, idempotency keys, live reconciliation | Provider has no idempotency key; `InDoubt` process required |
 | Concurrent external modification | Live baseline/preconditions, organization lease, exact read-back | No universal Azure DevOps conditional write; any mismatch stops |
@@ -327,7 +399,9 @@ Before read-only production:
 
 - [ ] Entra assignment-required, CA/MFA/PIM, session, CSRF, and authorization
       matrix tests pass.
-- [ ] Read identity is proven unable to mutate.
+- [ ] Sync runtime is proven unable to invoke mutations; identity-level mutation
+      probes fail or any unavoidable residual provider capability is explicitly
+      accepted with compensating controls.
 - [ ] Web/sync runtime cannot obtain the write identity.
 - [ ] Provider DTO and telemetry tests prove no secret-bearing fields are stored
       or logged.
@@ -340,6 +414,8 @@ Before any production writes:
 - [ ] Write identity has tested least privilege and is not a broad admin.
 - [ ] All static/dynamic/org/operation gates and kill switch are exercised.
 - [ ] Two-person approval and protected-target policies pass negative tests.
+- [ ] Approval/execution require bounded fresh authorization evidence; local
+      grant revocation and evidence expiry stop the worker.
 - [ ] Every mutation has pre-call audit, `InDoubt`, verification, and
       compensation tests.
 - [ ] Sandbox live tests pass for exact Project/Git operations and identity type.

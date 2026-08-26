@@ -150,18 +150,20 @@ to local fake state.
 flowchart LR
     WEB[Vite dev server or built SPA] --> API[ASP.NET Core API/BFF]
     API --> SQL[(SQL Server container)]
-    API --> FAKE[Fake provider]
-    API --> BUS[In-memory/test queue or local Service Bus abstraction]
+    SQL --> OPS[Operations worker<br/>outbox + audit export]
+    OPS --> BUS[In-memory/test queue or local Service Bus abstraction]
     BUS --> SYNC[Sync worker]
     BUS --> CHANGE[Change worker<br/>fake mutations only]
-    SYNC --> FAKE
+    SYNC --> FAKE[Fake provider]
     CHANGE --> FAKE
+    SYNC --> SQL
+    CHANGE --> SQL
 ```
 
 Local orchestration must preserve production boundaries:
 
 - web/API does not resolve `IAccessMutationProvider`
-- sync and change worker are distinct processes/composition roots
+- operations, sync, and change workers are distinct processes/composition roots
 - queue messages contain IDs
 - SQL and outbox remain authoritative
 - fake mutation still requires read-only/approval/audit gates in E2E tests
@@ -222,8 +224,7 @@ The app logs only credential source/type and expiry status, never the value.
 
 Live mutation contract tests require a separately named sandbox project and
 repository, explicit command-line acknowledgement, operation-level enablement,
-and automatic cleanup verification. They are not part of `test` or normal app
-startup.
+and operator-verified cleanup. They are not part of `test` or normal app startup.
 
 ## Developer data safety
 

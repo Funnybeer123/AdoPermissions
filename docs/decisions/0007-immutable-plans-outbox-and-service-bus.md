@@ -21,10 +21,14 @@ audit, and recovery unreliable.
 - Approval binds the exact plan and expansion hashes and requires a different
   human.
 - Store execution intent and an outbox message in one SQL transaction.
-- Dispatch plan/execution IDs through Azure Service Bus.
+- A no-Azure-DevOps operations worker dispatches plan/execution IDs through
+  Azure Service Bus and exports the audit stream to WORM-capable storage.
 - Change worker reloads authoritative SQL state and live provider state.
 - Persist an audit-attempt event before each remote call.
 - Reconcile ambiguous write results before retry (`InDoubt`).
+- Require an executable exact restoration primitive for every destructive
+  operation; additive cleanup is ManualOnly in MVP because Azure DevOps does not
+  provide causal ownership for identical edges/bits.
 - Use an organization execution lease in MVP and exact desired-state
   reconciliation for idempotency.
 
@@ -36,8 +40,9 @@ audit, and recovery unreliable.
 - State-machine and audit storage add implementation complexity.
 - Azure DevOps remains a nontransactional external system; compensation can be
   manual-only.
-- Service Bus and SQL availability are required for execution; writes fail
-  closed when either authority/audit path is unavailable.
+- Service Bus, SQL, and the within-policy immutable audit-export watermark are
+  required for execution; writes fail closed when an authority/audit path is
+  unavailable.
 
 ## Alternatives considered
 
@@ -55,6 +60,7 @@ audit, and recovery unreliable.
 
 - Deterministic plan hash/edit/expiry/replay tests.
 - Transactional outbox rollback/duplicate tests.
+- Audit export watermark/failure and operations-worker recovery tests.
 - Crash injection before/after every transition and provider call.
 - Timeout before send/after commit reconciliation.
 - Audit failure prevents call.

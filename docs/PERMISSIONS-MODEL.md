@@ -126,6 +126,12 @@ An Entra-backed Graph group normally has `origin=aad` and `originId` equal to
 the Entra object ID. Include tenant in the correlation. Azure DevOps Graph only
 shows materialized groups and cannot manage directory membership.
 
+Permission evaluation always operates on one organization-specific principal.
+The cross-organization Person Explorer links those principals through a
+tenant-scoped directory subject only when tenant, object ID, origin, and kind
+match; it then evaluates/authorizes each organization independently. Ambiguous
+or relinked identities remain separate and `Unknown`, never merged by email.
+
 ## Teams and groups
 
 A Core team has a corresponding identity/security group. Team ID is the team
@@ -202,6 +208,16 @@ Project:   $PROJECT:vstfs:///Classification/TeamProject/{PROJECT_GUID}
 `AGILETOOLS_BACKLOG` is documented as internal and must not be changed.
 Underdocumented, system, unknown, or reserved actions are read-only/unsupported.
 
+Initial automatic-write allowlist after Phase 0 confirms the live namespace
+schema:
+
+```text
+GENERIC_READ (expected bit 1)
+```
+
+`GENERIC_WRITE` and every administrative/project-lifecycle action remain
+analysis/manual-only in the first write slice.
+
 ### Git Repositories
 
 ```text
@@ -213,6 +229,21 @@ Repository:repoV2/{PROJECT_GUID}/{REPOSITORY_GUID}
 The obsolete `Administer` action is unsupported. Branch tokens have a special
 UTF-16LE hexadecimal path encoding and are post-MVP. Raw branch tokens can be
 preserved but not interpreted or changed by the MVP.
+
+Initial automatic-write allowlist at Git project/repository scope, after live
+schema proof:
+
+```text
+GenericRead        expected bit 2
+GenericContribute  expected bit 4
+CreateBranch       expected bit 16
+CreateTag          expected bit 32
+```
+
+ForcePush, repository create/delete/rename, policy bypass/edit, lock removal,
+ManagePermissions, pull-request bypass, obsolete Administer, branch tokens, and
+all unknown/system actions remain analysis/manual-only. Action name and expected
+bit must both match the capability snapshot; discovery alone cannot enable it.
 
 ### Build (post-MVP)
 
@@ -288,10 +319,16 @@ node/edge/depth/query limits, and deterministic ordering. A partial traversal
 makes affected effective results `Unknown`.
 
 For Entra groups, Azure DevOps does not provide a complete directory membership
-graph and changes can take up to roughly one hour to become observable in Azure
-DevOps. The optional Microsoft Graph provider may add direct/transitive Entra
-evidence, but destructive verification still waits for Azure DevOps itself to
-observe the replacement.
+graph. Service principals can inherit permissions from Entra groups while being
+absent from Azure DevOps Entra-group member listings. The optional Microsoft
+Graph provider may add direct/transitive evidence; without it, affected results
+remain `Unknown`.
+
+Entra changes might take up to one hour to become visible in Azure DevOps.
+Dynamic-group changes typically process within a few hours but can take more
+than 24 hours. Neither figure is an end-to-end SLA. Destructive verification
+still waits for Azure DevOps itself to observe replacement access and stops at
+its bounded policy window.
 
 ## Provider-computed evidence
 
@@ -339,7 +376,7 @@ not modeled generically. The interpreter is namespace-specific and provider
 evidence takes priority.
 
 ```text
-Evaluate(principal, resource, action, snapshot):
+Evaluate(principal, resource, action, snapshot, suppressedAssignments=none):
     interpreter = Registry.Resolve(resource.namespace, schemaHash)
     if no supported interpreter:
         return Unknown(UnsupportedNamespaceOrSchema)
@@ -359,11 +396,12 @@ Evaluate(principal, resource, action, snapshot):
     subjectResults = []
     for subject in subjects:
         subjectResults += interpreter.EvaluateSubjectAssignments(
-            subject, tokenChain, action)
+            subject, tokenChain, action, suppressedAssignments)
 
     derived = interpreter.CombineSubjects(subjectResults)
-    provider = TryGetProviderComputedEvidence(
-        principal, resource, action, subjects)
+    provider = none when suppressedAssignments is not empty
+               else TryGetProviderComputedEvidence(
+                   principal, resource, action, subjects)
 
     if provider is authoritative for this exact case:
         if derived disagrees:
@@ -380,10 +418,69 @@ Evaluate(principal, resource, action, snapshot):
     return outcome + authority + constraints + all explanatory paths
 ```
 
-Per-subject token evaluation starts at the target token, applies exact settings
-according to namespace rules, and walks parents only while inheritance remains
-enabled and no more-specific setting supersedes the parent for that subject.
-Subject combination applies tested group Deny/Allow precedence.
+For the MVP Project/Git ACL interpreters, the helper behavior is explicit:
+
+```text
+EvaluateSubjectAssignments(subject, targetToRootTokens, action, suppressed):
+    for token in targetToRootTokens:
+        acl = exact ACL for token
+        ace = exact stored ACE for subject at token, with only the explicitly
+              named suppressed bits removed in memory
+
+        if ace explicitly denies action:
+            return Deny(scope=token, specificity=ExactOrNearest)
+        if ace explicitly allows action:
+            return Allow(scope=token, specificity=ExactOrNearest)
+
+        if acl exists and acl.inheritPermissions == false:
+            return NotSet(InheritanceStoppedAt=token)
+
+    return NotSet
+
+CombineSubjects(subjectResults):
+    # Each subject result has already applied resource specificity independently.
+    if any subject result is Deny:
+        return Deny
+    if any subject result is Allow:
+        return Allow
+    return NotSet
+```
+
+This models the documented rules that a more-specific explicit setting replaces
+that subject's inherited parent setting, while applicable group Deny generally
+overrides Allow. Project/Git sandbox tests must cover user/group and child/parent
+combinations. Administrator/system exceptions, an incomplete token chain, or a
+provider/local disagreement return `Unknown`.
+
+### Counterfactual replacement evaluation
+
+Replacement verification cannot use the user's current provider-computed result
+while the direct ACE still exists; that result may be supplied entirely by the
+permission about to be removed. Before entering removal:
+
+```text
+EvaluateReplacementCounterfactual(liveState, selectedDirectBits):
+    require live membership, group ACE, token chain, and namespace schema complete
+    require each selected bit exists exactly as planned on the user
+
+    result = Evaluate(
+        user,
+        affected resource/action,
+        liveState,
+        suppressedAssignments=selected exact user ACE bits)
+
+    require result == Allow
+    require result.authority == DerivedSupported
+    require at least one surviving explanatory path reaches the replacement group
+    require no selected direct user ACE appears in any surviving path
+    return result
+```
+
+The provider cannot be asked to suppress a hypothetical ACE, so the
+counterfactual is a tested namespace-derived result. Immediately after actual
+removal, final verification uses fresh provider state and provider-computed
+evidence where supported. If counterfactual derivation is not authoritative for
+that coordinate, automation stops before removal.
 
 If Microsoft documentation, provider extended information, Permissions Report,
 and the local explanation disagree, the result is not silently normalized:
@@ -484,12 +581,20 @@ Names are display data, never ranking evidence.
 
 ```text
 RecommendGroups(userSnapshot, selectedFindings):
-    candidates = existing groups in same organization and valid scope
+    candidates = indexed groups in same organization and valid scope
     remove protected/system/admin groups
     remove groups whose membership cannot be managed as proposed
     mark incomplete groups non-automatic
 
-    for candidate in candidates:
+    prefilter by:
+        scope compatibility
+        normalized permission fingerprint overlap on affected coordinates
+        native/team/Entra policy
+        membership and cohort completeness
+
+    take deterministic top CandidateBudget (default 100)
+
+    for candidate in candidates within Query/Time/Coordinate budgets:
         proposedUser = Simulate(
             add user membership,
             remove selected direct assignments,
@@ -498,7 +603,10 @@ RecommendGroups(userSnapshot, selectedFindings):
         userComparison = CompareAccess(baseline, proposedUser)
 
         if group bits would change:
-            cohortComparison = Simulate every existing group member
+            cohort = complete transitive current members
+            if cohort exceeds CohortBudget:
+                mark ManualOnly(ImpactBudgetExceeded)
+            cohortComparison = simulate only changed coordinates for cohort
         else:
             cohortComparison = no change
 
@@ -510,17 +618,32 @@ RecommendGroups(userSnapshot, selectedFindings):
           5. highest selected-direct coverage
           6. fewest operations
 
-        return coverage, missing, gains, losses, unknowns,
-               cohort impact, operations, and rejection reasons
+        emit incremental candidate result
+
+    return coverage, missing, gains, losses, unknowns, cohort impact,
+           operations, rejection reasons, budget/completeness metadata
 ```
 
 Adding a permission to an existing group can expand access for every current
-member. That cohort impact is a first-class comparison and requires separate
-approval. The engine should prefer membership in a group that already provides
-the needed access.
+and future member. That cohort/future-member policy is a first-class comparison
+and requires separate approval. The engine should prefer membership in a group
+that already provides the needed access.
+
+Recommendation runs as a cancellable background analysis job. It never scans
+unbounded groups × members × resources in an HTTP request. Exceeding any budget
+returns partial ranked results plus `ManualOnly/Unknown` candidates; it does not
+weaken safety to finish. Performance tests set final budgets from representative
+enterprise data.
 
 Entra-backed groups are recommendation-only in MVP unless the user is already a
 directory member. Access Manager does not write Entra membership.
+
+Adding missing permissions to a candidate group is automatic only when it is a
+native, non-team, non-system group explicitly registered as permission-managed
+for that project. Approval acknowledges the permission as policy for all current
+and future members. If that governance acknowledgement is not appropriate, the
+candidate must already provide the exact replacement access and the plan can
+only add membership.
 
 ## Safe ACE mutation design
 
@@ -531,6 +654,11 @@ current = LiveReadExactStoredAce(token, descriptor)
 assert current equals operation.precondition
 assert namespace/token/action/capability are allowlisted
 assert no system, reserved, deprecated, or unknown bit is targeted
+
+if descriptor is replacement group:
+    assert group is native, non-team, non-system, permission-managed
+    assert approval acknowledges all current and future members
+    assert LiveHash(transitive current cohort) == operation.cohortPrecondition
 
 desired = ChangeOnlyApprovedBits(current)
 assert desired preserves every unrelated and unknown bit
@@ -553,6 +681,10 @@ Guidance:
 - Azure DevOps has no universal conditional-write ETag or transaction; a live
   preflight reduces but cannot eliminate races.
 - A timeout after a mutation is `InDoubt`; reconcile before retry.
+- Re-read the transitive cohort immediately before and after a group ACE change.
+  Any unacknowledged policy/scope change stops. Azure DevOps has no atomic
+  membership+ACE transaction, so approval of future-member semantics is required
+  to cover a member added in the unavoidable final race window.
 
 Explicit Deny is not automatically migrated. Copying a user's Deny to a shared
 group denies every member. MVP leaves direct Deny untouched and requires a

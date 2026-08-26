@@ -4,7 +4,7 @@ Internal application for visualizing and managing Azure DevOps users, groups, te
 
 ## Start Here
 
-The production planning gate is complete. Start with:
+The design package is ready for Phase 0 validation. Start with:
 
 - [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) — phased,
   agent-sized implementation checklist
@@ -14,6 +14,8 @@ The production planning gate is complete. Start with:
 The plan deliberately requires fake-provider and read-only milestones before
 Azure DevOps mutations. Live writes also require sandbox capability evidence,
 least-privilege validation, approval, audit, and verification gates.
+Stakeholder policy and live Azure DevOps capability items remain visibly
+unchecked in the implementation plan and must be resolved in Phase 0.
 
 ## Planning Documents
 
