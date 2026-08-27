@@ -37,7 +37,7 @@ export function UserDetailPage() {
     <section>
       <PageHeader
         title={user.displayName}
-        description={`${user.email} · ${user.descriptor} · ${user.directAssignmentCount} direct assignments`}
+        description={`${user.email} · ${user.license === 'Stakeholder' ? 'Stakeholder (free)' : 'Basic'} · ${user.descriptor} · ${user.directAssignmentCount} direct assignments`}
       />
       {user.findings.length > 0 ? (
         <ul className="inline-findings">

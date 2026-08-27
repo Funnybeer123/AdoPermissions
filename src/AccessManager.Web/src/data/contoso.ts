@@ -8,6 +8,7 @@ import type {
   ProjectDetail,
   ProjectSummary,
   SearchHit,
+  AccessNode,
   UserDetail,
   UserSummary,
 } from '../api/types';
@@ -29,6 +30,7 @@ const users: UserSummary[] = [
     projectCount: 3,
     directAssignmentCount: 6,
     privileged: false,
+    license: 'Basic',
   },
   {
     id: 'user:alice',
@@ -38,6 +40,7 @@ const users: UserSummary[] = [
     projectCount: 2,
     directAssignmentCount: 0,
     privileged: true,
+    license: 'Basic',
   },
   {
     id: 'user:bob',
@@ -47,6 +50,7 @@ const users: UserSummary[] = [
     projectCount: 2,
     directAssignmentCount: 3,
     privileged: false,
+    license: 'Basic',
   },
   {
     id: 'user:charlie',
@@ -56,6 +60,107 @@ const users: UserSummary[] = [
     projectCount: 2,
     directAssignmentCount: 1,
     privileged: false,
+    license: 'Basic',
+  },
+  {
+    id: 'user:dana',
+    displayName: 'Dana Cole',
+    email: 'dana@example.invalid',
+    origin: 'aad',
+    projectCount: 1,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:erin',
+    displayName: 'Erin Shah',
+    email: 'erin@example.invalid',
+    origin: 'aad',
+    projectCount: 0,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:fay',
+    displayName: 'Fay Wu',
+    email: 'fay@example.invalid',
+    origin: 'aad',
+    projectCount: 1,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:gabe',
+    displayName: 'Gabe Ito',
+    email: 'gabe@example.invalid',
+    origin: 'aad',
+    projectCount: 1,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:hanna',
+    displayName: 'Hanna Berg',
+    email: 'hanna@example.invalid',
+    origin: 'aad',
+    projectCount: 1,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:ivan',
+    displayName: 'Ivan Cruz',
+    email: 'ivan@example.invalid',
+    origin: 'aad',
+    projectCount: 0,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:jules',
+    displayName: 'Jules Okonkwo',
+    email: 'jules@example.invalid',
+    origin: 'aad',
+    projectCount: 2,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:kim',
+    displayName: 'Kim Patel',
+    email: 'kim@example.invalid',
+    origin: 'aad',
+    projectCount: 0,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:lee',
+    displayName: 'Lee Nakamura',
+    email: 'lee@example.invalid',
+    origin: 'aad',
+    projectCount: 1,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
+  },
+  {
+    id: 'user:mira',
+    displayName: 'Mira Solis',
+    email: 'mira@example.invalid',
+    origin: 'aad',
+    projectCount: 0,
+    directAssignmentCount: 0,
+    privileged: false,
+    license: 'Stakeholder',
   },
 ];
 
@@ -78,7 +183,7 @@ const groups: GroupSummary[] = [
     origin: 'vsts',
     originLabel: 'Azure DevOps',
     descriptor: 'vssgp.Uy0xLTgtMjEtYWxwaGEtcmVhZA',
-    memberCount: 1,
+    memberCount: 3,
     nestedGroupCount: 0,
     empty: false,
     privileged: false,
@@ -145,7 +250,7 @@ const projects: ProjectSummary[] = [
   {
     id: 'project:alpha',
     name: 'Project Alpha',
-    userCount: 3,
+    userCount: 7,
     groupCount: 3,
     teamCount: 1,
     repositoryCount: 2,
@@ -153,7 +258,7 @@ const projects: ProjectSummary[] = [
   {
     id: 'project:beta',
     name: 'Project Beta',
-    userCount: 2,
+    userCount: 4,
     groupCount: 1,
     teamCount: 1,
     repositoryCount: 1,
@@ -161,7 +266,7 @@ const projects: ProjectSummary[] = [
   {
     id: 'project:gamma',
     name: 'Project Gamma',
-    userCount: 2,
+    userCount: 3,
     groupCount: 1,
     teamCount: 0,
     repositoryCount: 1,
@@ -175,6 +280,10 @@ const overview: OverviewSnapshot = {
     groups: groups.length,
     projects: projects.length,
     teams: 2,
+    basic: users.filter((user) => user.license === 'Basic').length,
+    stakeholders: users.filter((user) => user.license === 'Stakeholder').length,
+    freeBasicUsed: users.filter((user) => user.license === 'Basic').length,
+    freeBasicIncluded: 5,
   },
   findings: [
     {
@@ -248,6 +357,31 @@ const overview: OverviewSnapshot = {
       count: 2,
       description: 'Alice and ADO-Platform-Admins hold organization administration bits.',
       href: '/groups/group:platform-admins',
+    },
+    {
+      id: 'finding:stakeholders',
+      severity: 'info',
+      title: 'Stakeholder (free) users',
+      count: 10,
+      description:
+        'Ten free Stakeholder licenses. They can view work items but Repos and Pipelines stay license-blocked.',
+      href: '/users?q=stakeholder',
+    },
+    {
+      id: 'finding:unused-stakeholders',
+      severity: 'low',
+      title: 'Unused Stakeholder entitlements',
+      count: 4,
+      description: 'Erin, Ivan, Kim, and Mira are entitled as Stakeholder and have no project access.',
+      href: '/users?q=stakeholder',
+    },
+    {
+      id: 'finding:license-blocked-git',
+      severity: 'medium',
+      title: 'License-blocked Git access',
+      count: 2,
+      description: 'Dana and Lee are in reader groups, but Stakeholder cannot use Azure Repos.',
+      href: '/users/user:dana',
     },
   ],
   readOnly: true,
@@ -693,6 +827,241 @@ const charlie: UserDetail = {
   ],
 };
 
+const licenseBlockedGit: AccessNode = {
+  id: 'stakeholder-git',
+  label: 'Repositories',
+  kind: 'repository',
+  source: 'NOT_SET',
+  effect: 'NotSet',
+  explanation:
+    'Stakeholder is the free Azure DevOps license. Git, Pipelines, and Advanced Boards are license-blocked. This is not an ACE Deny.',
+};
+
+function unusedStakeholderAccess(userId: string, name: string): AccessNode[] {
+  return [
+    {
+      id: `${userId}-org`,
+      label: 'Contoso',
+      kind: 'organization',
+      source: 'NOT_SET',
+      explanation: `${name} has a free Stakeholder entitlement and no project membership.`,
+    },
+  ];
+}
+
+function boardOnlyAccess(userId: string, name: string, projectId: string, projectName: string): AccessNode[] {
+  return [
+    {
+      id: `${userId}-org`,
+      label: 'Contoso',
+      kind: 'organization',
+      children: [
+        {
+          id: `${userId}-${projectId}`,
+          label: projectName,
+          kind: 'project',
+          children: [
+            {
+              id: `${userId}-boards`,
+              label: 'View work items',
+              kind: 'permission',
+              source: 'GROUP',
+              effect: 'Allow',
+              via: [name, 'ADO-Alpha-Readers', projectName],
+              explanation: 'Stakeholder can view boards. Repo and pipeline features stay license-blocked.',
+            },
+            { ...licenseBlockedGit, id: `${userId}-git` },
+          ],
+        },
+      ],
+    },
+  ];
+}
+
+const stakeholderDetails: Record<string, UserDetail> = {
+  'user:dana': {
+    ...users.find((user) => user.id === 'user:dana')!,
+    descriptor: 'aad.ZGFuYS1jb2xl',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:license-blocked-git')!],
+    recommendations: [],
+    access: boardOnlyAccess('user:dana', 'Dana Cole', 'alpha', 'Project Alpha'),
+  },
+  'user:erin': {
+    ...users.find((user) => user.id === 'user:erin')!,
+    descriptor: 'aad.ZXJpbi1zaGFo',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:unused-stakeholders')!],
+    recommendations: [],
+    access: unusedStakeholderAccess('user:erin', 'Erin Shah'),
+  },
+  'user:fay': {
+    ...users.find((user) => user.id === 'user:fay')!,
+    descriptor: 'aad.ZmF5LXd1',
+    findings: [],
+    recommendations: [],
+    access: [
+      {
+        id: 'fay-org',
+        label: 'Contoso',
+        kind: 'organization',
+        children: [
+          {
+            id: 'fay-beta',
+            label: 'Project Beta',
+            kind: 'project',
+            children: [
+              {
+                id: 'fay-boards',
+                label: 'View work items',
+                kind: 'permission',
+                source: 'GROUP',
+                effect: 'Allow',
+                via: ['Fay Wu', 'Project Beta'],
+              },
+              { ...licenseBlockedGit, id: 'fay-git' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'user:gabe': {
+    ...users.find((user) => user.id === 'user:gabe')!,
+    descriptor: 'aad.Z2FiZS1pdG8',
+    findings: [],
+    recommendations: [],
+    access: [
+      {
+        id: 'gabe-org',
+        label: 'Contoso',
+        kind: 'organization',
+        children: [
+          {
+            id: 'gabe-gamma',
+            label: 'Project Gamma',
+            kind: 'project',
+            children: [
+              {
+                id: 'gabe-boards',
+                label: 'View work items',
+                kind: 'permission',
+                source: 'GROUP',
+                effect: 'Allow',
+                via: ['Gabe Ito', 'Project Gamma'],
+              },
+              { ...licenseBlockedGit, id: 'gabe-git' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'user:hanna': {
+    ...users.find((user) => user.id === 'user:hanna')!,
+    descriptor: 'aad.aGFubmEtYmVyZw',
+    findings: [],
+    recommendations: [],
+    access: [
+      {
+        id: 'hanna-org',
+        label: 'Contoso',
+        kind: 'organization',
+        children: [
+          {
+            id: 'hanna-alpha',
+            label: 'Project Alpha',
+            kind: 'project',
+            children: [
+              {
+                id: 'hanna-team',
+                label: 'Team Alpha',
+                kind: 'team',
+                source: 'TEAM',
+                via: ['Hanna Berg', 'Team Alpha'],
+                explanation: 'Stakeholder team membership for board visibility only.',
+              },
+              { ...licenseBlockedGit, id: 'hanna-git' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'user:ivan': {
+    ...users.find((user) => user.id === 'user:ivan')!,
+    descriptor: 'aad.aXZhbi1jcnV6',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:unused-stakeholders')!],
+    recommendations: [],
+    access: unusedStakeholderAccess('user:ivan', 'Ivan Cruz'),
+  },
+  'user:jules': {
+    ...users.find((user) => user.id === 'user:jules')!,
+    descriptor: 'aad.anVsZXMtb2tvbmt3bw',
+    findings: [],
+    recommendations: [],
+    access: [
+      {
+        id: 'jules-org',
+        label: 'Contoso',
+        kind: 'organization',
+        children: [
+          {
+            id: 'jules-alpha',
+            label: 'Project Alpha',
+            kind: 'project',
+            children: [
+              {
+                id: 'jules-boards-alpha',
+                label: 'View work items',
+                kind: 'permission',
+                source: 'GROUP',
+                effect: 'Allow',
+                via: ['Jules Okonkwo', 'Project Alpha'],
+              },
+              { ...licenseBlockedGit, id: 'jules-git-alpha' },
+            ],
+          },
+          {
+            id: 'jules-beta',
+            label: 'Project Beta',
+            kind: 'project',
+            children: [
+              {
+                id: 'jules-boards-beta',
+                label: 'View work items',
+                kind: 'permission',
+                source: 'GROUP',
+                effect: 'Allow',
+                via: ['Jules Okonkwo', 'Project Beta'],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  'user:kim': {
+    ...users.find((user) => user.id === 'user:kim')!,
+    descriptor: 'aad.a2ltLXBhdGVs',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:unused-stakeholders')!],
+    recommendations: [],
+    access: unusedStakeholderAccess('user:kim', 'Kim Patel'),
+  },
+  'user:lee': {
+    ...users.find((user) => user.id === 'user:lee')!,
+    descriptor: 'aad.bGVlLW5ha2FtdXJh',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:license-blocked-git')!],
+    recommendations: [],
+    access: boardOnlyAccess('user:lee', 'Lee Nakamura', 'alpha', 'Project Alpha'),
+  },
+  'user:mira': {
+    ...users.find((user) => user.id === 'user:mira')!,
+    descriptor: 'aad.bWlyYS1zb2xpcw',
+    findings: [overview.findings.find((finding) => finding.id === 'finding:unused-stakeholders')!],
+    recommendations: [],
+    access: unusedStakeholderAccess('user:mira', 'Mira Solis'),
+  },
+};
+
 const groupDetails: Record<string, GroupDetail> = {
   'group:alpha-developers': {
     ...groups[0],
@@ -729,7 +1098,11 @@ const groupDetails: Record<string, GroupDetail> = {
   },
   'group:alpha-readers': {
     ...groups[1],
-    members: [{ id: 'user:charlie', displayName: 'Charlie Park', kind: 'user' }],
+    members: [
+      { id: 'user:charlie', displayName: 'Charlie Park', kind: 'user' },
+      { id: 'user:dana', displayName: 'Dana Cole', kind: 'user' },
+      { id: 'user:lee', displayName: 'Lee Nakamura', kind: 'user' },
+    ],
     nestedGroups: [],
     teams: [],
     projects: [{ id: 'project:alpha', name: 'Project Alpha' }],
@@ -852,6 +1225,10 @@ const projectDetails: Record<string, ProjectDetail> = {
       { id: 'user:evan', displayName: 'Evan Hale' },
       { id: 'user:alice', displayName: 'Alice Ng' },
       { id: 'user:charlie', displayName: 'Charlie Park' },
+      { id: 'user:dana', displayName: 'Dana Cole' },
+      { id: 'user:hanna', displayName: 'Hanna Berg' },
+      { id: 'user:jules', displayName: 'Jules Okonkwo' },
+      { id: 'user:lee', displayName: 'Lee Nakamura' },
     ],
     repositories: [
       { id: 'repo:api', name: 'API' },
@@ -869,6 +1246,8 @@ const projectDetails: Record<string, ProjectDetail> = {
     users: [
       { id: 'user:bob', displayName: 'Bob Ortega' },
       { id: 'user:evan', displayName: 'Evan Hale' },
+      { id: 'user:fay', displayName: 'Fay Wu' },
+      { id: 'user:jules', displayName: 'Jules Okonkwo' },
     ],
     repositories: [{ id: 'repo:services', name: 'Services' }],
     pipelines: [],
@@ -883,6 +1262,7 @@ const projectDetails: Record<string, ProjectDetail> = {
     users: [
       { id: 'user:evan', displayName: 'Evan Hale' },
       { id: 'user:charlie', displayName: 'Charlie Park' },
+      { id: 'user:gabe', displayName: 'Gabe Ito' },
     ],
     repositories: [{ id: 'repo:legacy', name: 'legacy-tools' }],
     pipelines: [{ id: 'pipe:gamma-retired', name: 'Gamma-Retired', unsupported: true }],
@@ -1365,6 +1745,7 @@ export const inventory = {
     'user:alice': alice,
     'user:bob': bob,
     'user:charlie': charlie,
+    ...stakeholderDetails,
   } satisfies Record<string, UserDetail>,
   groups,
   groupDetails,

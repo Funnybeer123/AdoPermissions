@@ -16,6 +16,16 @@ test('overview shows access problems rather than generic BI copy', async () => {
   expect(screen.getByText(/not a generic BI dashboard/i)).toBeInTheDocument();
 });
 
+test('users filter stakeholder shows Dana Cole and hides Evan Hale', async () => {
+  const user = userEvent.setup();
+  await renderApp('/users');
+  expect(await screen.findByRole('link', { name: 'Evan Hale' })).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Filter users'), 'stakeholder');
+  expect(await screen.findByRole('link', { name: 'Dana Cole' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Evan Hale' })).not.toBeInTheDocument();
+  expect(screen.getAllByText('Stakeholder (free)').length).toBeGreaterThan(0);
+});
+
 test('users filter evan keeps Evan Hale and hides Alice', async () => {
   const user = userEvent.setup();
   await renderApp('/users');

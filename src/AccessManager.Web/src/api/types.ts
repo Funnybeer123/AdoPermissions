@@ -12,6 +12,8 @@ export type PermissionEffect = 'Allow' | 'Deny' | 'NotSet' | 'Unknown';
 
 export type Origin = 'aad' | 'vsts';
 
+export type LicenseType = 'Basic' | 'Stakeholder';
+
 export type FindingSeverity = 'administrative' | 'high' | 'medium' | 'low' | 'info';
 
 export type ComparisonClass = 'SAME' | 'GAINED' | 'LOST' | 'CHANGED' | 'UNKNOWN';
@@ -61,6 +63,10 @@ export interface OverviewSnapshot {
     groups: number;
     projects: number;
     teams: number;
+    basic: number;
+    stakeholders: number;
+    freeBasicUsed: number;
+    freeBasicIncluded: number;
   };
   findings: Finding[];
   readOnly: true;
@@ -74,6 +80,7 @@ export interface UserSummary {
   projectCount: number;
   directAssignmentCount: number;
   privileged: boolean;
+  license: LicenseType;
 }
 
 export interface AccessNode {

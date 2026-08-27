@@ -24,7 +24,10 @@ export function UsersPage() {
   }, []);
 
   const users = useMemo(
-    () => allUsers.filter((user) => matches(draft, user.displayName, user.email, user.id)),
+    () =>
+      allUsers.filter((user) =>
+        matches(draft, user.displayName, user.email, user.id, user.license),
+      ),
     [allUsers, draft],
   );
 
@@ -32,11 +35,11 @@ export function UsersPage() {
     <section>
       <PageHeader
         title="Users"
-        description="Search by name or email. Opening a user shows the access hierarchy and why each bit is present."
+        description="Search by name, email, or license (Basic / Stakeholder). Stakeholder is the free Azure DevOps license with no Repos or Pipelines."
       />
       <Input
         value={draft}
-        placeholder="Filter by name or email"
+        placeholder="Filter by name, email, or license"
         aria-label="Filter users"
         onChange={(_, data) => {
           setDraft(data.value);
@@ -57,6 +60,7 @@ export function UsersPage() {
             <TableRow>
               <TableHeaderCell>User</TableHeaderCell>
               <TableHeaderCell>Email</TableHeaderCell>
+              <TableHeaderCell>License</TableHeaderCell>
               <TableHeaderCell>Projects</TableHeaderCell>
               <TableHeaderCell>Direct assignments</TableHeaderCell>
               <TableHeaderCell>Privileged</TableHeaderCell>
@@ -69,6 +73,7 @@ export function UsersPage() {
                   <Link to={`/users/${user.id}`}>{user.displayName}</Link>
                 </TableCell>
                 <TableCell>{user.email}</TableCell>
+                <TableCell>{user.license === 'Stakeholder' ? 'Stakeholder (free)' : 'Basic'}</TableCell>
                 <TableCell>{user.projectCount}</TableCell>
                 <TableCell>{user.directAssignmentCount}</TableCell>
                 <TableCell>{user.privileged ? 'Yes' : 'No'}</TableCell>

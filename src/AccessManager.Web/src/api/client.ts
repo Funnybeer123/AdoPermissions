@@ -48,7 +48,7 @@ export function createAccessInventoryClient(): AccessInventoryClient {
     },
     async listUsers(query = '') {
       return inventory.users.filter((user) =>
-        matches(query, user.displayName, user.email, user.id),
+        matches(query, user.displayName, user.email, user.id, user.license),
       );
     },
     async getUser(id) {

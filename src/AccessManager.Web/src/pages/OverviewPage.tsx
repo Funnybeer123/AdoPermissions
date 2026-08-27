@@ -40,6 +40,16 @@ export function OverviewPage() {
           <span>Teams</span>
           <strong>{snapshot.totals.teams}</strong>
         </article>
+        <article className="stat-card">
+          <span>Stakeholder (free)</span>
+          <strong>{snapshot.totals.stakeholders}</strong>
+        </article>
+        <article className="stat-card">
+          <span>Free Basic seats</span>
+          <strong>
+            {snapshot.totals.freeBasicUsed}/{snapshot.totals.freeBasicIncluded}
+          </strong>
+        </article>
       </div>
       <div className="finding-grid">
         {snapshot.findings.map((finding) => (

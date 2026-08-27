@@ -30,6 +30,24 @@ test('Evan has direct access and an exact Alpha group recommendation', async () 
   });
 });
 
+test('Contoso includes free Stakeholder users that are not live Azure DevOps identities', async () => {
+  const overview = await client.getOverview();
+  expect(overview.totals.stakeholders).toBe(10);
+  expect(overview.totals.basic).toBe(4);
+  expect(overview.totals.freeBasicUsed).toBe(4);
+  expect(overview.totals.freeBasicIncluded).toBe(5);
+  expect(overview.findings.some((finding) => finding.title === 'Stakeholder (free) users')).toBe(true);
+
+  const stakeholders = await client.listUsers('stakeholder');
+  expect(stakeholders).toHaveLength(10);
+  expect(stakeholders.every((user) => user.license === 'Stakeholder')).toBe(true);
+  expect(stakeholders.some((user) => user.email === 'dana@example.invalid')).toBe(true);
+
+  const dana = await client.getUser('user:dana');
+  expect(dana?.license).toBe('Stakeholder');
+  expect(JSON.stringify(dana?.access)).toMatch(/license-blocked/i);
+});
+
 test('draft plan operations are not executable', async () => {
   const plan = await client.getPlan('plan:evan-alpha');
   expect(plan?.state).toBe('Draft');
