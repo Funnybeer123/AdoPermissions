@@ -33,7 +33,7 @@ function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function matches(query: string, ...fields: string[]): boolean {
+export function matches(query: string, ...fields: string[]): boolean {
   const q = normalize(query);
   if (!q) {
     return true;

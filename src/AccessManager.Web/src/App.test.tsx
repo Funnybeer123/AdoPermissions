@@ -16,6 +16,15 @@ test('overview shows access problems rather than generic BI copy', async () => {
   expect(screen.getByText(/not a generic BI dashboard/i)).toBeInTheDocument();
 });
 
+test('users filter evan keeps Evan Hale and hides Alice', async () => {
+  const user = userEvent.setup();
+  await renderApp('/users');
+  expect(await screen.findByRole('link', { name: 'Alice Ng' })).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Filter users'), 'evan');
+  expect(screen.getByRole('link', { name: 'Evan Hale' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Alice Ng' })).not.toBeInTheDocument();
+});
+
 test('user search finds Evan and opens the access hierarchy', async () => {
   const user = userEvent.setup();
   await renderApp('/users');

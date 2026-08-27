@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Input,
@@ -9,19 +9,24 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@fluentui/react-components';
-import { accessClient } from '../api/client';
+import { accessClient, matches } from '../api/client';
 import type { UserSummary } from '../api/types';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 
 export function UsersPage() {
   const [params, setParams] = useSearchParams();
-  const query = params.get('q') ?? '';
-  const [users, setUsers] = useState<UserSummary[]>([]);
+  const [draft, setDraft] = useState(params.get('q') ?? '');
+  const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
 
   useEffect(() => {
-    void accessClient.listUsers(query).then(setUsers);
-  }, [query]);
+    void accessClient.listUsers().then(setAllUsers);
+  }, []);
+
+  const users = useMemo(
+    () => allUsers.filter((user) => matches(draft, user.displayName, user.email, user.id)),
+    [allUsers, draft],
+  );
 
   return (
     <section>
@@ -30,10 +35,11 @@ export function UsersPage() {
         description="Search by name or email. Opening a user shows the access hierarchy and why each bit is present."
       />
       <Input
-        value={query}
+        value={draft}
         placeholder="Filter by name or email"
         aria-label="Filter users"
         onChange={(_, data) => {
+          setDraft(data.value);
           const next = new URLSearchParams(params);
           if (data.value) {
             next.set('q', data.value);
