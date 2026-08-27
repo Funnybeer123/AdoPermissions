@@ -3,20 +3,33 @@ import { Link, useParams } from 'react-router-dom';
 import { accessClient } from '../api/client';
 import type { GroupDetail } from '../api/types';
 import { AccessTree } from '../components/AccessTree';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 
 export function GroupDetailPage() {
   const { groupId } = useParams();
   const [group, setGroup] = useState<GroupDetail | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!groupId) {
       return;
     }
-    void accessClient.getGroup(decodeURIComponent(groupId)).then(setGroup);
+    void accessClient
+      .getGroup(decodeURIComponent(groupId))
+      .then((value) => {
+        setGroup(value ?? null);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setGroup(null);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, [groupId]);
 
+  if (error) {
+    return <DisconnectedState reason={error} />;
+  }
   if (group === undefined) {
     return <p>Loading group…</p>;
   }

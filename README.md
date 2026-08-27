@@ -4,8 +4,8 @@ Internal application for visualizing and managing Azure DevOps users, groups, te
 
 ## Start Here
 
-The first local site is the read-only Access Manager shell with Contoso fake
-data. From the repository root:
+The first local site is the read-only Access Manager shell against the
+`evanbeer` Azure DevOps organization. From the repository root:
 
 ```bash
 ./eng/dev-web

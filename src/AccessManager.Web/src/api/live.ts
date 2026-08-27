@@ -78,10 +78,22 @@ export function createLiveInventoryClient() {
       }
       return response.json() as Promise<ProjectDetail>;
     },
-    listMatrix: async () => [],
-    listDirectFindings: async () => [],
-    listPlans: async () => [],
-    getPlan: async () => undefined,
+    listMatrix: async () => {
+      await liveJson<OverviewSnapshot>('/api/live/overview');
+      return [];
+    },
+    listDirectFindings: async () => {
+      await liveJson<OverviewSnapshot>('/api/live/overview');
+      return [];
+    },
+    listPlans: async () => {
+      await liveJson<OverviewSnapshot>('/api/live/overview');
+      return [];
+    },
+    getPlan: async () => {
+      await liveJson<OverviewSnapshot>('/api/live/overview');
+      return undefined;
+    },
     search: async (query: string) => {
       const [users, groups, projects] = await Promise.all([
         liveJson<UserSummary[]>('/api/live/users'),

@@ -2,7 +2,7 @@
 
 Read-only React shell for Azure DevOps Access Manager. It is served as a
 same-origin SPA and reads a typed inventory client seam. This milestone uses
-the deterministic Contoso fake inventory. The client never handles Azure DevOps
+the live `evanbeer` organization. The client never handles Azure DevOps
 or Entra tokens.
 
 ## Run locally
@@ -21,11 +21,10 @@ Or from the repository root:
 
 Open http://localhost:4780
 
-The Contoso fake inventory is the default. The `evanbeer` Azure DevOps
-organization is the disposable sandbox. To inventory it, set a short-lived
-read-only `AZURE_DEVOPS_PAT` in the environment (never in git or chat), then
-use the **evanbeer sandbox** switch. The proxy only issues GET requests and
-never creates users.
+The site inventories the `evanbeer` Azure DevOps organization. Set a
+short-lived `AZURE_DEVOPS_PAT` in the environment (never in git or chat).
+The proxy only issues GET requests and never creates users. Azure DevOps
+Stakeholder seats require real Microsoft identities.
 
 ## Checks
 
@@ -37,9 +36,7 @@ npm run build
 
 ## What is in this shell
 
-- Access-problem overview
+- Access-problem overview from live membership and licenses
 - User, group, and project explorers
-- Permission matrix with source/effect labels
-- Direct-permission cleanup report
-- Dry-run migration plan with no execute controls
-- Global search, including email-to-user access graph
+- Permission matrix and plans stay empty until ACE evaluation exists
+- Global search over live users, groups, and projects

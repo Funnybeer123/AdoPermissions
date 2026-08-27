@@ -2,69 +2,84 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import App from './App';
+import { mockLiveConnected, mockLiveDisconnected } from './test/mockLiveFetch';
 
 async function renderApp(path = '/') {
   window.history.pushState({}, '', path);
   return render(<App />);
 }
 
-test('sandbox switch stays disabled until a live PAT is configured', async () => {
+test('disconnected shell has no Contoso switch and explains the missing PAT', async () => {
+  const fetchSpy = mockLiveDisconnected();
   await renderApp('/');
-  const sandbox = await screen.findByRole('button', { name: 'evanbeer sandbox' });
-  expect(sandbox).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Contoso fake' })).toBeEnabled();
+  expect(await screen.findByText(/evanbeer is not connected/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/AZURE_DEVOPS_PAT/i).length).toBeGreaterThan(0);
+  expect(screen.queryByRole('button', { name: 'Contoso fake' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Evan Hale')).not.toBeInTheDocument();
+  expect(screen.queryByText('Dana Cole')).not.toBeInTheDocument();
+  fetchSpy.mockRestore();
 });
 
-test('overview shows access problems rather than generic BI copy', async () => {
+test('connected overview shows live evanbeer totals, not a generic BI dashboard', async () => {
+  const fetchSpy = mockLiveConnected();
   await renderApp('/');
   expect(await screen.findByRole('heading', { name: 'Access overview' })).toBeInTheDocument();
-  expect(screen.getByText('Users with direct permissions')).toBeInTheDocument();
-  expect(screen.getByText('Explicit Deny assignments')).toBeInTheDocument();
   expect(screen.getByText(/not a generic BI dashboard/i)).toBeInTheDocument();
+  expect(screen.getByText('Sandbox inventory is read-only')).toBeInTheDocument();
+  expect(screen.getByText('Live evanbeer inventory')).toBeInTheDocument();
+  fetchSpy.mockRestore();
 });
 
-test('users filter stakeholder shows Dana Cole and hides Evan Hale', async () => {
+test('users filter stakeholder keeps Pat Nguyen and hides the Basic owner', async () => {
+  const fetchSpy = mockLiveConnected();
   const user = userEvent.setup();
   await renderApp('/users');
-  expect(await screen.findByRole('link', { name: 'Evan Hale' })).toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Org Owner' })).toBeInTheDocument();
   await user.type(screen.getByLabelText('Filter users'), 'stakeholder');
-  expect(await screen.findByRole('link', { name: 'Dana Cole' })).toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: 'Evan Hale' })).not.toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Pat Nguyen' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Org Owner' })).not.toBeInTheDocument();
   expect(screen.getAllByText('Stakeholder (free)').length).toBeGreaterThan(0);
+  fetchSpy.mockRestore();
 });
 
-test('users filter evan keeps Evan Hale and hides Alice', async () => {
+test('users filter pat keeps Pat Nguyen and hides the owner', async () => {
+  const fetchSpy = mockLiveConnected();
   const user = userEvent.setup();
   await renderApp('/users');
-  expect(await screen.findByRole('link', { name: 'Alice Ng' })).toBeInTheDocument();
-  await user.type(screen.getByLabelText('Filter users'), 'evan');
-  expect(screen.getByRole('link', { name: 'Evan Hale' })).toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: 'Alice Ng' })).not.toBeInTheDocument();
+  expect(await screen.findByRole('link', { name: 'Org Owner' })).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Filter users'), 'pat');
+  expect(screen.getByRole('link', { name: 'Pat Nguyen' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Org Owner' })).not.toBeInTheDocument();
+  fetchSpy.mockRestore();
 });
 
-test('user search finds Evan and opens the access hierarchy', async () => {
+test('user search opens a live principal without mock access bits', async () => {
+  const fetchSpy = mockLiveConnected();
   const user = userEvent.setup();
   await renderApp('/users');
   await screen.findByRole('heading', { name: 'Users' });
-  await user.type(screen.getByLabelText('Filter users'), 'evan@');
-  expect(await screen.findByRole('link', { name: 'Evan Hale' })).toBeInTheDocument();
-  await user.click(screen.getByRole('link', { name: 'Evan Hale' }));
-  expect(await screen.findByRole('heading', { name: 'Evan Hale' })).toBeInTheDocument();
-  expect(screen.getAllByText('DIRECT').length).toBeGreaterThan(0);
-  expect(screen.getByRole('link', { name: 'ADO-Alpha-Developers' })).toBeInTheDocument();
+  await user.type(screen.getByLabelText('Filter users'), 'pat@');
+  expect(await screen.findByRole('link', { name: 'Pat Nguyen' })).toBeInTheDocument();
+  await user.click(screen.getByRole('link', { name: 'Pat Nguyen' }));
+  expect(await screen.findByRole('heading', { name: 'Pat Nguyen' })).toBeInTheDocument();
+  expect(screen.getByText(/does not evaluate ACEs yet/i)).toBeInTheDocument();
+  fetchSpy.mockRestore();
 });
 
-test('planning screen is dry-run only', async () => {
-  await renderApp('/plans/plan:evan-alpha');
-  expect(await screen.findByText(/dry-run comparison, not an execution form/i)).toBeInTheDocument();
-  expect(screen.getAllByText(/Nothing executes from this planning screen/i).length).toBeGreaterThan(0);
+test('planning screen stays dry-run only with no execute controls', async () => {
+  const fetchSpy = mockLiveConnected();
+  await renderApp('/plans');
+  expect(await screen.findByText(/Dry-run previews only/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/Nothing on this screen can execute/i).length).toBeGreaterThan(0);
   expect(screen.queryByRole('button', { name: /execute|apply|approve/i })).not.toBeInTheDocument();
-  expect(screen.getAllByText('No').length).toBeGreaterThan(0);
+  fetchSpy.mockRestore();
 });
 
 test('overview has no serious accessibility violations', async () => {
+  const fetchSpy = mockLiveConnected();
   const { container } = await renderApp('/');
   await screen.findByRole('heading', { name: 'Access overview' });
   const results = await axe(container);
   expect(results.violations.filter((violation) => violation.impact === 'critical')).toEqual([]);
+  fetchSpy.mockRestore();
 });

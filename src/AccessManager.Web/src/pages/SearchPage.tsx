@@ -2,24 +2,34 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { accessClient } from '../api/client';
 import type { SearchHit } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 
 export function SearchPage() {
   const [params] = useSearchParams();
   const query = params.get('q') ?? '';
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!query.trim()) {
       return;
     }
     let cancelled = false;
-    void accessClient.search(query).then((result) => {
-      if (!cancelled) {
-        setHits(result);
-      }
-    });
+    void accessClient
+      .search(query)
+      .then((result) => {
+        if (!cancelled) {
+          setHits(result);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setHits([]);
+          setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -41,8 +51,10 @@ export function SearchPage() {
           Email matched <Link to={emailHit.href}>{emailHit.title}</Link>. Open the access graph.
         </p>
       ) : null}
-      {query.trim() && visibleHits.length === 0 ? (
-        <EmptyState title="No inventory matches" detail="Try evan@example.invalid, ADO-Alpha-Developers, or API." />
+      {error ? (
+        <DisconnectedState reason={error} />
+      ) : query.trim() && visibleHits.length === 0 ? (
+        <EmptyState title="No inventory matches" detail="Search a live display name, email, group, or project from evanbeer." />
       ) : (
         <ul className="search-results">
           {visibleHits.map((hit) => (

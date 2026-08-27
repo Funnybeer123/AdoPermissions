@@ -8,3 +8,16 @@ export function EmptyState({ title, detail }: { title: string; detail?: string }
     </div>
   );
 }
+
+export function DisconnectedState({ reason }: { reason?: string }) {
+  return (
+    <EmptyState
+      title="evanbeer is not connected"
+      detail={
+        reason
+          ? `${reason}. Add a short-lived AZURE_DEVOPS_PAT environment secret. Azure DevOps users must already exist as Microsoft identities.`
+          : 'Add a short-lived AZURE_DEVOPS_PAT environment secret to inventory the evanbeer organization. Stakeholder seats cannot be invented.'
+      }
+    />
+  );
+}

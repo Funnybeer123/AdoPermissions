@@ -27,7 +27,10 @@ export function PlansPage() {
         description="Dry-run previews only. Nothing on this screen can execute a membership or ACE change."
       />
       {plans.length === 0 ? (
-        <EmptyState title="No plans" />
+        <EmptyState
+          title="No live plans"
+          detail="Dry-run plans are not generated until live ACE evaluation exists. Nothing on this screen can execute a change."
+        />
       ) : (
         <Table aria-label="Migration plans">
           <TableHeader>

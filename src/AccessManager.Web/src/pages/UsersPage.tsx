@@ -11,16 +11,26 @@ import {
 } from '@fluentui/react-components';
 import { accessClient, matches } from '../api/client';
 import type { UserSummary } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 
 export function UsersPage() {
   const [params, setParams] = useSearchParams();
   const [draft, setDraft] = useState(params.get('q') ?? '');
   const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void accessClient.listUsers().then(setAllUsers);
+    void accessClient
+      .listUsers()
+      .then((users) => {
+        setAllUsers(users);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setAllUsers([]);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, []);
 
   const users = useMemo(
@@ -52,8 +62,13 @@ export function UsersPage() {
           setParams(next, { replace: true });
         }}
       />
-      {users.length === 0 ? (
-        <EmptyState title="No users match" detail="Try a display name or an email such as evan@example.invalid." />
+      {error ? (
+        <DisconnectedState reason={error} />
+      ) : users.length === 0 ? (
+        <EmptyState
+          title={allUsers.length === 0 ? 'No users in evanbeer' : 'No users match'}
+          detail="Try a display name, email, or license such as Stakeholder."
+        />
       ) : (
         <Table aria-label="Users">
           <TableHeader>

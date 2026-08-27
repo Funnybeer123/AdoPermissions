@@ -1,56 +1,45 @@
-import { createContosoInventoryClient } from './client';
+import { accessClient } from './client';
+import { mockLiveConnected, mockLiveDisconnected } from '../test/mockLiveFetch';
 
-const client = createContosoInventoryClient();
-
-test('overview is a findings inventory, not an empty dashboard', async () => {
-  const overview = await client.getOverview();
-  expect(overview.organization.name).toBe('Contoso');
+test('live overview is a findings inventory for evanbeer', async () => {
+  const fetchSpy = mockLiveConnected();
+  const overview = await accessClient.getOverview();
+  expect(overview.organization.name).toBe('evanbeer');
   expect(overview.readOnly).toBe(true);
-  expect(overview.findings.some((finding) => finding.title === 'Users with direct permissions')).toBe(true);
-  expect(overview.findings.some((finding) => finding.title === 'Explicit Deny assignments')).toBe(true);
+  expect(overview.findings.some((finding) => finding.title === 'Sandbox inventory is read-only')).toBe(true);
+  fetchSpy.mockRestore();
 });
 
-test('email search returns Evan Hale access route', async () => {
-  const hits = await client.search('evan@example.invalid');
+test('email search returns the live principal route', async () => {
+  const fetchSpy = mockLiveConnected();
+  const hits = await accessClient.search('pat@example.invalid');
   expect(hits[0]).toMatchObject({
-    title: 'Evan Hale',
-    href: '/users/user:evan',
+    title: 'Pat Nguyen',
+    href: '/users/user:pat',
     kind: 'user',
   });
+  fetchSpy.mockRestore();
 });
 
-test('Evan has direct access and an exact Alpha group recommendation', async () => {
-  const evan = await client.getUser('user:evan');
-  expect(evan?.directAssignmentCount).toBeGreaterThan(0);
-  expect(evan?.recommendations[0]).toMatchObject({
-    groupName: 'ADO-Alpha-Developers',
-    coverage: 'exact',
-    lostCount: 0,
-    gainedCount: 0,
-  });
+test('Stakeholder filter uses live license fields', async () => {
+  const fetchSpy = mockLiveConnected();
+  const stakeholders = await accessClient.listUsers('stakeholder');
+  expect(stakeholders).toHaveLength(1);
+  expect(stakeholders[0]?.email).toBe('pat@example.invalid');
+  expect(stakeholders[0]?.license).toBe('Stakeholder');
+  fetchSpy.mockRestore();
 });
 
-test('Contoso includes free Stakeholder users that are not live Azure DevOps identities', async () => {
-  const overview = await client.getOverview();
-  expect(overview.totals.stakeholders).toBe(10);
-  expect(overview.totals.basic).toBe(4);
-  expect(overview.totals.freeBasicUsed).toBe(4);
-  expect(overview.totals.freeBasicIncluded).toBe(5);
-  expect(overview.findings.some((finding) => finding.title === 'Stakeholder (free) users')).toBe(true);
-
-  const stakeholders = await client.listUsers('stakeholder');
-  expect(stakeholders).toHaveLength(10);
-  expect(stakeholders.every((user) => user.license === 'Stakeholder')).toBe(true);
-  expect(stakeholders.some((user) => user.email === 'dana@example.invalid')).toBe(true);
-
-  const dana = await client.getUser('user:dana');
-  expect(dana?.license).toBe('Stakeholder');
-  expect(JSON.stringify(dana?.access)).toMatch(/license-blocked/i);
+test('plans stay empty and non-executable on the live path', async () => {
+  const fetchSpy = mockLiveConnected();
+  const plans = await accessClient.listPlans();
+  expect(plans).toEqual([]);
+  expect(await accessClient.getPlan('plan:anything')).toBeUndefined();
+  fetchSpy.mockRestore();
 });
 
-test('draft plan operations are not executable', async () => {
-  const plan = await client.getPlan('plan:evan-alpha');
-  expect(plan?.state).toBe('Draft');
-  expect(plan?.operations.every((operation) => operation.executable === false)).toBe(true);
-  expect(plan?.comparison.every((row) => row.classification === 'SAME')).toBe(true);
+test('disconnected inventory rejects product reads', async () => {
+  const fetchSpy = mockLiveDisconnected();
+  await expect(accessClient.getOverview()).rejects.toThrow(/not connected/i);
+  fetchSpy.mockRestore();
 });

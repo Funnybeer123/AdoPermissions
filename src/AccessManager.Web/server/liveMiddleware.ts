@@ -107,7 +107,7 @@ export async function loadSandboxInventory() {
           title: 'Sandbox inventory is read-only',
           count: users.length,
           description:
-            'evanbeer is connected for membership and license reads only. No users are created, and ACE evaluation stays on the Contoso fake inventory.',
+            'evanbeer is connected for membership and license reads only. No users are created and no ACEs are written.',
           href: '/users',
         },
         {
@@ -115,7 +115,7 @@ export async function loadSandboxInventory() {
           severity: 'medium' as const,
           title: 'Live permission bits are not evaluated yet',
           count: 1,
-          description: 'Switch back to Contoso for access hierarchy, matrix, and dry-run plans.',
+          description: 'Access hierarchy, matrix, and dry-run plans stay empty until ACE evaluation is added.',
           href: '/users',
         },
       ],
@@ -178,7 +178,7 @@ export function createLiveMiddleware() {
               kind: 'organization',
               source: 'UNKNOWN',
               explanation:
-                'Live sandbox inventory does not evaluate ACEs yet. Use Contoso for access hierarchy and dry-run plans.',
+                'Live sandbox inventory does not evaluate ACEs yet. Membership and license are shown from evanbeer.',
             },
           ],
         });

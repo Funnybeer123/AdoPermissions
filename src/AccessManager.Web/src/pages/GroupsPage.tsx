@@ -11,27 +11,39 @@ import {
 } from '@fluentui/react-components';
 import { accessClient } from '../api/client';
 import type { GroupSummary } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 
 export function GroupsPage() {
   const [query, setQuery] = useState('');
   const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void accessClient.listGroups(query).then(setGroups);
+    void accessClient
+      .listGroups(query)
+      .then((value) => {
+        setGroups(value);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setGroups([]);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, [query]);
 
   return (
     <section>
-      <PageHeader title="Groups" description="Native Azure DevOps groups and Entra-backed groups in the Contoso inventory." />
+      <PageHeader title="Groups" description="Native Azure DevOps groups and Entra-backed groups in the live evanbeer inventory." />
       <Input
         value={query}
         placeholder="Filter groups"
         aria-label="Filter groups"
         onChange={(_, data) => setQuery(data.value)}
       />
-      {groups.length === 0 ? (
+      {error ? (
+        <DisconnectedState reason={error} />
+      ) : groups.length === 0 ? (
         <EmptyState title="No groups match" />
       ) : (
         <Table aria-label="Groups">

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Tab, TabList } from '@fluentui/react-components';
 import { accessClient } from '../api/client';
 import type { ProjectDetail } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { EffectBadge, SourceBadge } from '../components/SourceBadge';
 
@@ -13,14 +13,27 @@ export function ProjectDetailPage() {
   const { projectId } = useParams();
   const [project, setProject] = useState<ProjectDetail | null | undefined>(undefined);
   const [tab, setTab] = useState<ProjectTab>('assignments');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectId) {
       return;
     }
-    void accessClient.getProject(decodeURIComponent(projectId)).then(setProject);
+    void accessClient
+      .getProject(decodeURIComponent(projectId))
+      .then((value) => {
+        setProject(value ?? null);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setProject(null);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, [projectId]);
 
+  if (error) {
+    return <DisconnectedState reason={error} />;
+  }
   if (project === undefined) {
     return <p>Loading project…</p>;
   }

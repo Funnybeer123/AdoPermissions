@@ -25,7 +25,7 @@ export function PlanDetailPage() {
     if (!planId) {
       return;
     }
-    void accessClient.getPlan(decodeURIComponent(planId)).then(setPlan);
+    void accessClient.getPlan(decodeURIComponent(planId)).then((value) => setPlan(value ?? null));
   }, [planId]);
 
   if (plan === undefined) {

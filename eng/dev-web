@@ -6,6 +6,5 @@ if [[ ! -d node_modules ]]; then
   npm install
 fi
 echo "Access Manager is on http://localhost:4780"
-echo "Contoso fake inventory is always available."
-echo "Sandbox evanbeer is read-only and needs AZURE_DEVOPS_PAT in the environment."
+echo "Live evanbeer inventory is read-only and needs AZURE_DEVOPS_PAT in the environment."
 npm run dev

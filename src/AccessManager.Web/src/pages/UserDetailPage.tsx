@@ -11,26 +11,39 @@ import {
 import { accessClient } from '../api/client';
 import type { UserDetail } from '../api/types';
 import { AccessTree } from '../components/AccessTree';
-import { EmptyState } from '../components/EmptyState';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { ClassificationBadge, SeverityBadge } from '../components/SourceBadge';
 
 export function UserDetailPage() {
   const { userId } = useParams();
   const [user, setUser] = useState<UserDetail | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) {
       return;
     }
-    void accessClient.getUser(decodeURIComponent(userId)).then(setUser);
+    void accessClient
+      .getUser(decodeURIComponent(userId))
+      .then((value) => {
+        setUser(value ?? null);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setUser(null);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, [userId]);
 
+  if (error) {
+    return <DisconnectedState reason={error} />;
+  }
   if (user === undefined) {
     return <p>Loading user access…</p>;
   }
   if (!user) {
-    return <EmptyState title="User not found" detail="The Contoso inventory does not contain that principal." />;
+    return <EmptyState title="User not found" detail="The live evanbeer inventory does not contain that principal." />;
   }
 
   return (
@@ -60,7 +73,7 @@ export function UserDetailPage() {
             a loss blocks automatic migration.
           </p>
           {user.recommendations.length === 0 ? (
-            <EmptyState title="No replacement candidates" detail="This user already receives access from groups." />
+            <EmptyState title="No replacement candidates" detail="Live ACE evaluation is not available yet." />
           ) : (
             <Table aria-label="Group recommendations">
               <TableHeader>
@@ -106,11 +119,6 @@ export function UserDetailPage() {
               <strong>{recommendation.groupName}:</strong> {recommendation.rationale}
             </p>
           ))}
-          {user.id === 'user:evan' ? (
-            <p>
-              <Link to="/plans/plan:evan-alpha">Open the dry-run plan for ADO-Alpha-Developers</Link>
-            </p>
-          ) : null}
         </article>
       </div>
     </section>

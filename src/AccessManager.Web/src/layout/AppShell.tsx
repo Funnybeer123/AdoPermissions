@@ -14,9 +14,7 @@ import {
   Table24Regular,
 } from '@fluentui/react-icons';
 import { accessClient } from '../api/client';
-import { getInventorySource, setInventorySource, subscribeInventorySource } from '../api/inventorySource';
 import { liveStatus } from '../api/live';
-import type { InventorySource } from '../api/inventorySource';
 import type { Organization } from '../api/types';
 
 const navItems = [
@@ -35,22 +33,27 @@ export function AppShell() {
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [source, setSource] = useState<InventorySource>(getInventorySource());
-  const [sandboxReady, setSandboxReady] = useState(false);
-  const [sandboxReason, setSandboxReason] = useState('missing_pat');
-
-  useEffect(() => subscribeInventorySource(setSource), []);
+  const [connected, setConnected] = useState(false);
+  const [connectionReason, setConnectionReason] = useState('missing_pat');
 
   useEffect(() => {
     void liveStatus().then((status) => {
-      setSandboxReady(status.connected);
-      setSandboxReason(status.reason);
+      setConnected(status.connected);
+      setConnectionReason(status.reason);
     });
   }, []);
 
   useEffect(() => {
-    void accessClient.getOverview().then((overview) => setOrganization(overview.organization));
-  }, [source]);
+    void accessClient.getOverview().then((overview) => setOrganization(overview.organization)).catch(() => {
+      setOrganization({
+        id: 'org:evanbeer',
+        name: 'evanbeer',
+        generation: 0,
+        syncedAtUtc: '—',
+        coverage: 'VisibilityReduced',
+      });
+    });
+  }, []);
 
   function onSearch(event: FormEvent) {
     event.preventDefault();
@@ -94,9 +97,9 @@ export function AppShell() {
         <div className="sidebar-note">
           <strong>Read-only mode</strong>
           <p>
-            {source === 'sandbox'
+            {connected
               ? 'Connected to sandbox evanbeer. No users are created and no ACEs are written.'
-              : 'Mutations are disabled. Plans stay at dry-run preview.'}
+              : 'Live inventory only. Mutations stay disabled until a later write slice.'}
           </p>
         </div>
       </aside>
@@ -113,33 +116,16 @@ export function AppShell() {
             Menu
           </Button>
           <div className="org-meta">
-            <span className="org-name">{organization?.name ?? 'Contoso'}</span>
+            <span className="org-name">{organization?.name ?? 'evanbeer'}</span>
             <span>
               generation {organization?.generation ?? '—'} · synced {organization?.syncedAtUtc ?? '—'} ·{' '}
-              {organization?.coverage ?? 'Complete'} coverage
+              {organization?.coverage ?? 'VisibilityReduced'} coverage
             </span>
-            <div className="source-switch" role="group" aria-label="Inventory source">
-              <Button
-                appearance={source === 'contoso' ? 'primary' : 'secondary'}
-                size="small"
-                onClick={() => setInventorySource('contoso')}
-              >
-                Contoso fake
-              </Button>
-              <Button
-                appearance={source === 'sandbox' ? 'primary' : 'secondary'}
-                size="small"
-                disabled={!sandboxReady}
-                title={
-                  sandboxReady
-                    ? 'Read-only inventory from sandbox org evanbeer'
-                    : `Sandbox evanbeer is not connected (${sandboxReason}). Add AZURE_DEVOPS_PAT to the environment.`
-                }
-                onClick={() => setInventorySource('sandbox')}
-              >
-                evanbeer sandbox
-              </Button>
-            </div>
+            <p className="connection-status" role="status">
+              {connected
+                ? 'Live evanbeer inventory'
+                : `Disconnected (${connectionReason}). Add AZURE_DEVOPS_PAT to read the org.`}
+            </p>
           </div>
           <form className="search-form" role="search" onSubmit={onSearch}>
             <Input
@@ -153,7 +139,7 @@ export function AppShell() {
           <span className="readonly-pill">Read-only</span>
         </header>
         <main id="main" className="content">
-          <Outlet key={source} />
+          <Outlet />
         </main>
       </div>
     </div>

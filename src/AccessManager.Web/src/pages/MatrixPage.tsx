@@ -14,14 +14,16 @@ import {
   TableRow,
 } from '@fluentui/react-components';
 import { accessClient } from '../api/client';
-import type { MatrixRow } from '../api/types';
-import { EmptyState } from '../components/EmptyState';
+import type { MatrixRow, ProjectSummary } from '../api/types';
+import { DisconnectedState, EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { EffectBadge, SourceBadge } from '../components/SourceBadge';
 
 export function MatrixPage() {
   const [params, setParams] = useSearchParams();
   const [rows, setRows] = useState<MatrixRow[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const query = {
     q: params.get('q') ?? '',
     principalKind: (params.get('principalKind') ?? '') as '' | 'user' | 'group' | 'team',
@@ -33,15 +35,28 @@ export function MatrixPage() {
   };
 
   useEffect(() => {
-    void accessClient.listMatrix({
-      q: params.get('q') ?? '',
-      principalKind: (params.get('principalKind') ?? '') as '' | 'user' | 'group' | 'team',
-      projectId: params.get('projectId') ?? '',
-      directOnly: params.get('directOnly') === '1',
-      inheritedOnly: params.get('inheritedOnly') === '1',
-      deniedOnly: params.get('deniedOnly') === '1',
-      administrativeOnly: params.get('administrativeOnly') === '1',
-    }).then(setRows);
+    void accessClient.listProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
+
+  useEffect(() => {
+    void accessClient
+      .listMatrix({
+        q: params.get('q') ?? '',
+        principalKind: (params.get('principalKind') ?? '') as '' | 'user' | 'group' | 'team',
+        projectId: params.get('projectId') ?? '',
+        directOnly: params.get('directOnly') === '1',
+        inheritedOnly: params.get('inheritedOnly') === '1',
+        deniedOnly: params.get('deniedOnly') === '1',
+        administrativeOnly: params.get('administrativeOnly') === '1',
+      })
+      .then((value) => {
+        setRows(value);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        setRows([]);
+        setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      });
   }, [params]);
 
   function update(next: Record<string, string | undefined>) {
@@ -89,10 +104,11 @@ export function MatrixPage() {
           onOptionSelect={(_, data) => update({ projectId: data.optionValue === 'all' ? undefined : data.optionValue })}
         >
           <Option value="all">All projects</Option>
-          <Option value="project:alpha">Project Alpha</Option>
-          <Option value="project:beta">Project Beta</Option>
-          <Option value="project:gamma">Project Gamma</Option>
-          <Option value="org:contoso">Contoso</Option>
+          {projects.map((project) => (
+            <Option key={project.id} value={project.id}>
+              {project.name}
+            </Option>
+          ))}
         </Dropdown>
         <Checkbox
           label="Direct only"
@@ -118,8 +134,10 @@ export function MatrixPage() {
           Clear filters
         </Button>
       </div>
-      {rows.length === 0 ? (
-        <EmptyState title="No permission rows match the current filters" />
+      {error ? (
+        <DisconnectedState reason={error} />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No live permission bits are evaluated yet" detail="Membership and licenses come from evanbeer. ACE evaluation is not enabled on this read-only path." />
       ) : (
         <Table aria-label="Permission matrix">
           <TableHeader>
@@ -142,7 +160,7 @@ export function MatrixPage() {
                         ? `/users/${row.principalId}`
                         : row.principalKind === 'group'
                           ? `/groups/${row.principalId}`
-                          : '/projects/project:alpha'
+                          : `/projects/${row.projectId}`
                     }
                   >
                     {row.principal}

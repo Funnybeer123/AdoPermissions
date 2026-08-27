@@ -130,11 +130,9 @@ nav {
   background: #2c333a;
 }
 
-.source-switch {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+.connection-status {
+  margin: 8px 0 0;
+  font-size: 0.86rem;
 }
 
 .sidebar-note {
