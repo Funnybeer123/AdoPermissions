@@ -91,28 +91,6 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="source-switch" role="group" aria-label="Inventory source">
-          <button
-            type="button"
-            className={source === 'contoso' ? 'active' : ''}
-            onClick={() => setInventorySource('contoso')}
-          >
-            Contoso fake
-          </button>
-          <button
-            type="button"
-            className={source === 'sandbox' ? 'active' : ''}
-            disabled={!sandboxReady}
-            title={
-              sandboxReady
-                ? 'Read-only inventory from sandbox org evanbeer'
-                : `Sandbox evanbeer is not connected (${sandboxReason}). Add AZURE_DEVOPS_PAT to the environment.`
-            }
-            onClick={() => setInventorySource('sandbox')}
-          >
-            evanbeer sandbox
-          </button>
-        </div>
         <div className="sidebar-note">
           <strong>Read-only mode</strong>
           <p>
@@ -140,6 +118,28 @@ export function AppShell() {
               generation {organization?.generation ?? '—'} · synced {organization?.syncedAtUtc ?? '—'} ·{' '}
               {organization?.coverage ?? 'Complete'} coverage
             </span>
+            <div className="source-switch" role="group" aria-label="Inventory source">
+              <Button
+                appearance={source === 'contoso' ? 'primary' : 'secondary'}
+                size="small"
+                onClick={() => setInventorySource('contoso')}
+              >
+                Contoso fake
+              </Button>
+              <Button
+                appearance={source === 'sandbox' ? 'primary' : 'secondary'}
+                size="small"
+                disabled={!sandboxReady}
+                title={
+                  sandboxReady
+                    ? 'Read-only inventory from sandbox org evanbeer'
+                    : `Sandbox evanbeer is not connected (${sandboxReason}). Add AZURE_DEVOPS_PAT to the environment.`
+                }
+                onClick={() => setInventorySource('sandbox')}
+              >
+                evanbeer sandbox
+              </Button>
+            </div>
           </div>
           <form className="search-form" role="search" onSubmit={onSearch}>
             <Input
