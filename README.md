@@ -4,7 +4,15 @@ Internal application for visualizing and managing Azure DevOps users, groups, te
 
 ## Start Here
 
-The design package is ready for Phase 0 validation. Start with:
+The first local site is the read-only Access Manager shell with Contoso fake
+data. From the repository root:
+
+```bash
+./eng/dev-web
+```
+
+Then open http://localhost:5173. The design package is ready for Phase 0
+validation. Start with:
 
 - [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) — phased,
   agent-sized implementation checklist
