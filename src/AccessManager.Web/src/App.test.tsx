@@ -8,6 +8,13 @@ async function renderApp(path = '/') {
   return render(<App />);
 }
 
+test('sandbox switch stays disabled until a live PAT is configured', async () => {
+  await renderApp('/');
+  const sandbox = await screen.findByRole('button', { name: 'evanbeer sandbox' });
+  expect(sandbox).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Contoso fake' })).toBeEnabled();
+});
+
 test('overview shows access problems rather than generic BI copy', async () => {
   await renderApp('/');
   expect(await screen.findByRole('heading', { name: 'Access overview' })).toBeInTheDocument();

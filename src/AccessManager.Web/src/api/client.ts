@@ -1,4 +1,7 @@
 import { inventory } from '../data/contoso';
+import { getInventorySource } from './inventorySource';
+import { createLiveInventoryClient } from './live';
+import { matches } from './match';
 import type {
   DirectFinding,
   GroupDetail,
@@ -29,19 +32,16 @@ export interface AccessInventoryClient {
   search(query: string): Promise<SearchHit[]>;
 }
 
-function normalize(value: string): string {
-  return value.trim().toLowerCase();
+export { matches } from './match';
+
+const liveClient = createLiveInventoryClient();
+const contosoClient = createContosoInventoryClient();
+
+function activeClient(): AccessInventoryClient {
+  return getInventorySource() === 'sandbox' ? liveClient : contosoClient;
 }
 
-export function matches(query: string, ...fields: string[]): boolean {
-  const q = normalize(query);
-  if (!q) {
-    return true;
-  }
-  return fields.some((field) => normalize(field).includes(q));
-}
-
-export function createAccessInventoryClient(): AccessInventoryClient {
+export function createContosoInventoryClient(): AccessInventoryClient {
   return {
     async getOverview() {
       return inventory.overview;
@@ -113,4 +113,17 @@ export function createAccessInventoryClient(): AccessInventoryClient {
   };
 }
 
-export const accessClient = createAccessInventoryClient();
+export const accessClient: AccessInventoryClient = {
+  getOverview: (...args) => activeClient().getOverview(...args),
+  listUsers: (...args) => activeClient().listUsers(...args),
+  getUser: (...args) => activeClient().getUser(...args),
+  listGroups: (...args) => activeClient().listGroups(...args),
+  getGroup: (...args) => activeClient().getGroup(...args),
+  listProjects: (...args) => activeClient().listProjects(...args),
+  getProject: (...args) => activeClient().getProject(...args),
+  listMatrix: (...args) => activeClient().listMatrix(...args),
+  listDirectFindings: (...args) => activeClient().listDirectFindings(...args),
+  listPlans: (...args) => activeClient().listPlans(...args),
+  getPlan: (...args) => activeClient().getPlan(...args),
+  search: (...args) => activeClient().search(...args),
+};

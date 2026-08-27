@@ -130,6 +130,32 @@ nav {
   background: #2c333a;
 }
 
+.source-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-switch button {
+  border: 1px solid #3a4148;
+  background: #2c333a;
+  color: var(--am-sidebar-ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-switch button.active {
+  background: var(--am-accent);
+  border-color: var(--am-accent);
+}
+
+.source-switch button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .sidebar-note {
   margin-top: auto;
   padding: 12px;

@@ -21,6 +21,12 @@ Or from the repository root:
 
 Open http://localhost:4780
 
+The Contoso fake inventory is the default. The `evanbeer` Azure DevOps
+organization is the disposable sandbox. To inventory it, set a short-lived
+read-only `AZURE_DEVOPS_PAT` in the environment (never in git or chat), then
+use the **evanbeer sandbox** switch. The proxy only issues GET requests and
+never creates users.
+
 ## Checks
 
 ```bash

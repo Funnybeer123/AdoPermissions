@@ -1,6 +1,6 @@
-import { createAccessInventoryClient } from './client';
+import { createContosoInventoryClient } from './client';
 
-const client = createAccessInventoryClient();
+const client = createContosoInventoryClient();
 
 test('overview is a findings inventory, not an empty dashboard', async () => {
   const overview = await client.getOverview();

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 4780 --strictPort",
     "build": "tsc -b && vite build",
-    "lint": "oxlint src",
+    "lint": "oxlint src server",
     "preview": "vite preview --host 0.0.0.0 --port 4780 --strictPort",
     "test": "vitest run",
     "test:watch": "vitest"

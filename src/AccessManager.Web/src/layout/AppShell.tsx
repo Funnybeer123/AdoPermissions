@@ -14,6 +14,9 @@ import {
   Table24Regular,
 } from '@fluentui/react-icons';
 import { accessClient } from '../api/client';
+import { getInventorySource, setInventorySource, subscribeInventorySource } from '../api/inventorySource';
+import { liveStatus } from '../api/live';
+import type { InventorySource } from '../api/inventorySource';
 import type { Organization } from '../api/types';
 
 const navItems = [
@@ -32,10 +35,22 @@ export function AppShell() {
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [source, setSource] = useState<InventorySource>(getInventorySource());
+  const [sandboxReady, setSandboxReady] = useState(false);
+  const [sandboxReason, setSandboxReason] = useState('missing_pat');
+
+  useEffect(() => subscribeInventorySource(setSource), []);
+
+  useEffect(() => {
+    void liveStatus().then((status) => {
+      setSandboxReady(status.connected);
+      setSandboxReason(status.reason);
+    });
+  }, []);
 
   useEffect(() => {
     void accessClient.getOverview().then((overview) => setOrganization(overview.organization));
-  }, []);
+  }, [source]);
 
   function onSearch(event: FormEvent) {
     event.preventDefault();
@@ -76,9 +91,35 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+        <div className="source-switch" role="group" aria-label="Inventory source">
+          <button
+            type="button"
+            className={source === 'contoso' ? 'active' : ''}
+            onClick={() => setInventorySource('contoso')}
+          >
+            Contoso fake
+          </button>
+          <button
+            type="button"
+            className={source === 'sandbox' ? 'active' : ''}
+            disabled={!sandboxReady}
+            title={
+              sandboxReady
+                ? 'Read-only inventory from sandbox org evanbeer'
+                : `Sandbox evanbeer is not connected (${sandboxReason}). Add AZURE_DEVOPS_PAT to the environment.`
+            }
+            onClick={() => setInventorySource('sandbox')}
+          >
+            evanbeer sandbox
+          </button>
+        </div>
         <div className="sidebar-note">
           <strong>Read-only mode</strong>
-          <p>Mutations are disabled. Plans stay at dry-run preview.</p>
+          <p>
+            {source === 'sandbox'
+              ? 'Connected to sandbox evanbeer. No users are created and no ACEs are written.'
+              : 'Mutations are disabled. Plans stay at dry-run preview.'}
+          </p>
         </div>
       </aside>
       <div className="shell-main">
@@ -112,7 +153,7 @@ export function AppShell() {
           <span className="readonly-pill">Read-only</span>
         </header>
         <main id="main" className="content">
-          <Outlet />
+          <Outlet key={source} />
         </main>
       </div>
     </div>
