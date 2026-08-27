@@ -5,4 +5,5 @@ cd "$root/src/AccessManager.Web"
 if [[ ! -d node_modules ]]; then
   npm install
 fi
+echo "Access Manager is on http://localhost:4780"
 npm run dev

@@ -11,7 +11,7 @@ data. From the repository root:
 ./eng/dev-web
 ```
 
-Then open http://localhost:5173. The design package is ready for Phase 0
+Then open http://localhost:4780. The design package is ready for Phase 0
 validation. Start with:
 
 - [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) — phased,

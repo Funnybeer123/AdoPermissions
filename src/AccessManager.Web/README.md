@@ -19,7 +19,7 @@ Or from the repository root:
 ./eng/dev-web
 ```
 
-Open http://localhost:5173
+Open http://localhost:4780
 
 ## Checks
 

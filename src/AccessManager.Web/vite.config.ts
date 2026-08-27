@@ -6,11 +6,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 4780,
+    strictPort: true,
   },
   preview: {
     host: '0.0.0.0',
-    port: 4173,
+    port: 4780,
+    strictPort: true,
   },
   test: {
     environment: 'jsdom',
