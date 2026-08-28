@@ -4,15 +4,47 @@ Internal application for visualizing and managing Azure DevOps users, groups, te
 
 ## Start Here
 
-Open this repository in Cursor and use **Plan Mode**.
+The first local site is the read-only Access Manager shell against the
+`evanbeer` Azure DevOps organization. From the repository root:
 
-The complete project specification and planning prompt is located at:
+```bash
+./eng/dev-web
+```
 
-- [`docs/CURSOR-PLAN.md`](docs/CURSOR-PLAN.md)
+Then open http://localhost:4780. The design package is ready for Phase 0
+validation. Start with:
 
-In Cursor, instruct the agent:
+- [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) — phased,
+  agent-sized implementation checklist
+- [`docs/CURSOR-PLAN.md`](docs/CURSOR-PLAN.md) — authoritative product
+  specification
 
-> Read `docs/CURSOR-PLAN.md` in full. Follow it as the authoritative project specification. Remain in Plan Mode, research the current Azure DevOps APIs, inspect this repository, and create `docs/IMPLEMENTATION-PLAN.md`. Do not implement application code until the plan is complete.
+The plan deliberately requires fake-provider and read-only milestones before
+Azure DevOps mutations. Live writes also require sandbox capability evidence,
+least-privilege validation, approval, audit, and verification gates.
+Stakeholder policy and live Azure DevOps capability items remain visibly
+unchecked in the implementation plan and must be resolved in Phase 0.
+
+## Planning Documents
+
+| Topic | Document |
+|---|---|
+| Architecture and technology decisions | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Azure DevOps API/version/scope mapping | [`docs/AZURE-DEVOPS-API.md`](docs/AZURE-DEVOPS-API.md) |
+| Normalized domain model | [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md) |
+| Synchronization and freshness | [`docs/SYNC-ENGINE.md`](docs/SYNC-ENGINE.md) |
+| Permission interpretation and analysis | [`docs/PERMISSIONS-MODEL.md`](docs/PERMISSIONS-MODEL.md) |
+| Migration, verification, and rollback | [`docs/MIGRATION-ENGINE.md`](docs/MIGRATION-ENGINE.md) |
+| Security and threat model | [`docs/SECURITY.md`](docs/SECURITY.md) |
+| Testing | [`docs/TESTING.md`](docs/TESTING.md) |
+| Local fake-first workflow | [`docs/LOCAL-DEVELOPMENT.md`](docs/LOCAL-DEVELOPMENT.md) |
+| Deployment and operations | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| Architecture decision records | [`docs/decisions/`](docs/decisions/) |
+
+The implementation plan resolves the original specification's 20 open design
+questions and records current API limitations. API behavior—especially write
+permissions—must still be contract-tested in a disposable Azure DevOps
+organization before that capability is enabled.
 
 ## Primary Goal
 
