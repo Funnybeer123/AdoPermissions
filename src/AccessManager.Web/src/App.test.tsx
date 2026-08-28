@@ -2,12 +2,27 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { axe } from 'vitest-axe';
 import App from './App';
-import { mockLiveConnected, mockLiveDisconnected } from './test/mockLiveFetch';
+import { mockLiveConnected, mockLiveDisconnected, mockLiveStatusPending } from './test/mockLiveFetch';
 
 async function renderApp(path = '/') {
   window.history.pushState({}, '', path);
   return render(<App />);
 }
+
+test('shell does not claim missing_pat before live status resolves', async () => {
+  const pending = mockLiveStatusPending();
+  await renderApp('/');
+  expect(screen.getByText(/Checking evanbeer connection/i)).toBeInTheDocument();
+  expect(screen.getByText(/Connecting to evanbeer/i)).toBeInTheDocument();
+  expect(screen.queryByText(/missing_pat/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/AZURE_DEVOPS_PAT/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/VisibilityReduced/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Disconnected/i)).not.toBeInTheDocument();
+  pending.releaseMissingPat();
+  expect(await screen.findByText(/missing_pat/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/AZURE_DEVOPS_PAT/i).length).toBeGreaterThan(0);
+  pending.fetchSpy.mockRestore();
+});
 
 test('disconnected shell has no Contoso switch and explains the missing PAT', async () => {
   const fetchSpy = mockLiveDisconnected();

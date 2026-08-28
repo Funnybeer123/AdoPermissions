@@ -27,33 +27,39 @@ const navItems = [
   { to: '/plans', label: 'Plans', icon: CalendarAgenda24Regular },
 ];
 
+type ConnectionState = 'unknown' | 'connected' | 'disconnected';
+
 export function AppShell() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [query, setQuery] = useState(params.get('q') ?? '');
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [navOpen, setNavOpen] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [connectionReason, setConnectionReason] = useState('missing_pat');
+  const [connection, setConnection] = useState<ConnectionState>('unknown');
+  const [connectionReason, setConnectionReason] = useState<string | null>(null);
 
   useEffect(() => {
     void liveStatus().then((status) => {
-      setConnected(status.connected);
+      setConnection(status.connected ? 'connected' : 'disconnected');
       setConnectionReason(status.reason);
     });
   }, []);
 
   useEffect(() => {
-    void accessClient.getOverview().then((overview) => setOrganization(overview.organization)).catch(() => {
-      setOrganization({
-        id: 'org:evanbeer',
-        name: 'evanbeer',
-        generation: 0,
-        syncedAtUtc: '—',
-        coverage: 'VisibilityReduced',
-      });
-    });
+    void accessClient.getOverview().then((overview) => setOrganization(overview.organization)).catch(() => undefined);
   }, []);
+
+  const shownOrganization =
+    organization ??
+    (connection === 'disconnected'
+      ? {
+          id: 'org:evanbeer',
+          name: 'evanbeer',
+          generation: 0,
+          syncedAtUtc: '—',
+          coverage: 'VisibilityReduced' as const,
+        }
+      : null);
 
   function onSearch(event: FormEvent) {
     event.preventDefault();
@@ -64,6 +70,13 @@ export function AppShell() {
     setNavOpen(false);
     navigate(`/search?q=${encodeURIComponent(value)}`);
   }
+
+  const connectionLabel =
+    connection === 'connected'
+      ? 'Live evanbeer inventory'
+      : connection === 'disconnected'
+        ? `Disconnected (${connectionReason ?? 'unknown'}). Add AZURE_DEVOPS_PAT to read the org.`
+        : 'Checking evanbeer connection…';
 
   return (
     <div className="app-shell">
@@ -97,7 +110,7 @@ export function AppShell() {
         <div className="sidebar-note">
           <strong>Read-only mode</strong>
           <p>
-            {connected
+            {connection === 'connected'
               ? 'Connected to sandbox evanbeer. No users are created and no ACEs are written.'
               : 'Live inventory only. Mutations stay disabled until a later write slice.'}
           </p>
@@ -116,15 +129,14 @@ export function AppShell() {
             Menu
           </Button>
           <div className="org-meta">
-            <span className="org-name">{organization?.name ?? 'evanbeer'}</span>
+            <span className="org-name">{shownOrganization?.name ?? 'evanbeer'}</span>
             <span>
-              generation {organization?.generation ?? '—'} · synced {organization?.syncedAtUtc ?? '—'} ·{' '}
-              {organization?.coverage ?? 'VisibilityReduced'} coverage
+              {shownOrganization
+                ? `generation ${shownOrganization.generation} · synced ${shownOrganization.syncedAtUtc} · ${shownOrganization.coverage} coverage`
+                : 'Connecting to evanbeer…'}
             </span>
-            <p className="connection-status" role="status">
-              {connected
-                ? 'Live evanbeer inventory'
-                : `Disconnected (${connectionReason}). Add AZURE_DEVOPS_PAT to read the org.`}
+            <p className={`connection-status is-${connection}`} role="status">
+              {connectionLabel}
             </p>
           </div>
           <form className="search-form" role="search" onSubmit={onSearch}>

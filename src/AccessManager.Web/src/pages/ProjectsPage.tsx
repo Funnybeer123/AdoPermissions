@@ -16,6 +16,7 @@ import { PageHeader } from '../components/PageHeader';
 export function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void accessClient
@@ -27,13 +28,18 @@ export function ProjectsPage() {
       .catch((err: unknown) => {
         setProjects([]);
         setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      })
+      .finally(() => {
+        setLoading(false);
       });
   }, []);
 
   return (
     <section>
       <PageHeader title="Projects" description="Switch from the organization inventory into a project-centric view." />
-      {error ? (
+      {loading ? (
+        <p>Loading evanbeer projects…</p>
+      ) : error ? (
         <DisconnectedState reason={error} />
       ) : projects.length === 0 ? (
         <EmptyState title="No projects in evanbeer" />

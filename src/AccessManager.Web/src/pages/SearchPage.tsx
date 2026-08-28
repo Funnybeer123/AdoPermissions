@@ -10,30 +10,36 @@ export function SearchPage() {
   const query = params.get('q') ?? '';
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadedQuery, setLoadedQuery] = useState('');
 
   useEffect(() => {
     if (!query.trim()) {
       return;
     }
+    const requested = query;
     let cancelled = false;
     void accessClient
-      .search(query)
+      .search(requested)
       .then((result) => {
         if (!cancelled) {
           setHits(result);
           setError(null);
+          setLoadedQuery(requested);
         }
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           setHits([]);
           setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+          setLoadedQuery(requested);
         }
       });
     return () => {
       cancelled = true;
     };
   }, [query]);
+
+  const loading = Boolean(query.trim()) && loadedQuery !== query;
 
   const visibleHits = query.trim() ? hits : [];
   const emailHit = visibleHits.find(
@@ -51,7 +57,9 @@ export function SearchPage() {
           Email matched <Link to={emailHit.href}>{emailHit.title}</Link>. Open the access graph.
         </p>
       ) : null}
-      {error ? (
+      {loading ? (
+        <p>Searching evanbeer inventory…</p>
+      ) : error ? (
         <DisconnectedState reason={error} />
       ) : query.trim() && visibleHits.length === 0 ? (
         <EmptyState title="No inventory matches" detail="Search a live display name, email, group, or project from evanbeer." />

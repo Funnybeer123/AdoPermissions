@@ -133,6 +133,11 @@ nav {
 .connection-status {
   margin: 8px 0 0;
   font-size: 0.86rem;
+  color: var(--am-muted);
+}
+
+.connection-status.is-unknown {
+  color: var(--am-muted);
 }
 
 .sidebar-note {

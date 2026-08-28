@@ -18,19 +18,25 @@ export function GroupsPage() {
   const [query, setQuery] = useState('');
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
 
   useEffect(() => {
+    const requested = query;
     void accessClient
-      .listGroups(query)
+      .listGroups(requested)
       .then((value) => {
         setGroups(value);
         setError(null);
+        setLoadedQuery(requested);
       })
       .catch((err: unknown) => {
         setGroups([]);
         setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+        setLoadedQuery(requested);
       });
   }, [query]);
+
+  const loading = loadedQuery !== query;
 
   return (
     <section>
@@ -41,7 +47,9 @@ export function GroupsPage() {
         aria-label="Filter groups"
         onChange={(_, data) => setQuery(data.value)}
       />
-      {error ? (
+      {loading ? (
+        <p>Loading evanbeer groups…</p>
+      ) : error ? (
         <DisconnectedState reason={error} />
       ) : groups.length === 0 ? (
         <EmptyState title="No groups match" />

@@ -8,6 +8,34 @@ function json(body: unknown, status = 200) {
   });
 }
 
+export function mockLiveStatusPending() {
+  let releaseStatus: ((value: Response) => void) | undefined;
+  const status = new Promise<Response>((resolve) => {
+    releaseStatus = resolve;
+  });
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes('/api/live/status')) {
+      return status;
+    }
+    return new Promise<Response>(() => undefined);
+  });
+  return {
+    fetchSpy,
+    releaseMissingPat() {
+      releaseStatus?.(
+        json({
+          connected: false,
+          organization: 'evanbeer',
+          reason: 'missing_pat',
+          writes: false,
+          configured: false,
+        }),
+      );
+    },
+  };
+}
+
 export function mockLiveDisconnected() {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input);

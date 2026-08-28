@@ -27,7 +27,30 @@ function pathname(req: IncomingMessage): string {
   return (req.url ?? '').split('?')[0] ?? '';
 }
 
+type SandboxInventory = Awaited<ReturnType<typeof readSandboxInventory>>;
+
+const INVENTORY_TTL_MS = 10_000;
+let inFlightInventory: Promise<SandboxInventory> | null = null;
+let cachedInventory: { at: number; value: SandboxInventory } | null = null;
+
 export async function loadSandboxInventory(fetchImpl: typeof fetch = fetch) {
+  if (fetchImpl !== fetch) {
+    return readSandboxInventory(fetchImpl);
+  }
+  if (cachedInventory && Date.now() - cachedInventory.at < INVENTORY_TTL_MS) {
+    return cachedInventory.value;
+  }
+  if (!inFlightInventory) {
+    inFlightInventory = readSandboxInventory(fetch).finally(() => {
+      inFlightInventory = null;
+    });
+  }
+  const value = await inFlightInventory;
+  cachedInventory = { at: Date.now(), value };
+  return value;
+}
+
+async function readSandboxInventory(fetchImpl: typeof fetch) {
   const organization = resolveSandboxOrg();
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() ?? '';
   if (!pat) {
@@ -141,6 +164,16 @@ export function createLiveMiddleware() {
     }
 
     try {
+      if (path === '/api/live/status' && !hasSandboxPat()) {
+        sendJson(res, 200, {
+          connected: false,
+          organization: resolveSandboxOrg(),
+          reason: 'missing_pat',
+          writes: false,
+          configured: false,
+        });
+        return;
+      }
       const inventory = await loadSandboxInventory();
       if (path === '/api/live/status') {
         sendJson(res, 200, {

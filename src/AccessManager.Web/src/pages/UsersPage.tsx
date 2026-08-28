@@ -19,6 +19,7 @@ export function UsersPage() {
   const [draft, setDraft] = useState(params.get('q') ?? '');
   const [allUsers, setAllUsers] = useState<UserSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void accessClient
@@ -30,6 +31,9 @@ export function UsersPage() {
       .catch((err: unknown) => {
         setAllUsers([]);
         setError(err instanceof Error ? err.message : 'Sandbox inventory is not connected');
+      })
+      .finally(() => {
+        setLoading(false);
       });
   }, []);
 
@@ -62,7 +66,9 @@ export function UsersPage() {
           setParams(next, { replace: true });
         }}
       />
-      {error ? (
+      {loading ? (
+        <p>Loading evanbeer users…</p>
+      ) : error ? (
         <DisconnectedState reason={error} />
       ) : users.length === 0 ? (
         <EmptyState
