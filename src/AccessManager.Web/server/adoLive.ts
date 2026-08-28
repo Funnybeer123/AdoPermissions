@@ -22,6 +22,37 @@ export type EntitlementMember = {
   };
 };
 
+/**
+ * User Entitlements list wrappers differ by api-version:
+ * - 7.1 stable: PagedUserEntitlementsList.items
+ * - 7.1-preview.3: members
+ * - 7.1-preview.1: value
+ * Prefer the first defined array so an empty `members` field cannot hide `items`.
+ */
+export type EntitlementCollection = {
+  items?: EntitlementMember[];
+  members?: EntitlementMember[];
+  value?: EntitlementMember[];
+  continuationToken?: string | null;
+  totalCount?: number;
+};
+
+export function entitlementCollection(data: EntitlementCollection | null | undefined): EntitlementMember[] {
+  if (!data) {
+    return [];
+  }
+  if (Array.isArray(data.items)) {
+    return data.items;
+  }
+  if (Array.isArray(data.members)) {
+    return data.members;
+  }
+  if (Array.isArray(data.value)) {
+    return data.value;
+  }
+  return [];
+}
+
 export type ProjectValue = {
   id?: string;
   name?: string;

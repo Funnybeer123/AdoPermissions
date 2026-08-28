@@ -1,4 +1,32 @@
-import { buildAdoUrl, mapEntitlementToUser, mapLicense, resolveSandboxOrg } from './adoLive.ts';
+import {
+  buildAdoUrl,
+  entitlementCollection,
+  mapEntitlementToUser,
+  mapLicense,
+  resolveSandboxOrg,
+} from './adoLive.ts';
+
+const dana = {
+  id: 'user-dana',
+  user: {
+    descriptor: 'aad.ZGFuYQ',
+    displayName: 'Dana Cole',
+    mailAddress: 'dana@example.invalid',
+    origin: 'aad',
+  },
+  accessLevel: { accountLicenseType: 'stakeholder', licenseDisplayName: 'Stakeholder' },
+};
+
+const evan = {
+  id: 'user-evan',
+  user: {
+    descriptor: 'aad.ZXZhbg',
+    displayName: 'Evan Hale',
+    mailAddress: 'evan@example.invalid',
+    origin: 'aad',
+  },
+  accessLevel: { accountLicenseType: 'express', licenseDisplayName: 'Basic' },
+};
 
 test('allowlists the evanbeer sandbox org', () => {
   expect(resolveSandboxOrg('evanbeer')).toBe('evanbeer');
@@ -38,4 +66,32 @@ test('maps Stakeholder licenses from entitlements', () => {
   });
   expect(user.license).toBe('Stakeholder');
   expect(user.id).toBe('user:aad.ZGFuYQ');
+});
+
+test('7.1 stable User Entitlements uses items, even when members is empty', () => {
+  const rows = entitlementCollection({
+    items: [dana, evan],
+    members: [],
+    continuationToken: null,
+    totalCount: 2,
+  });
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.user?.displayName)).toEqual(['Dana Cole', 'Evan Hale']);
+});
+
+test('7.1-preview.3 User Entitlements uses members', () => {
+  const rows = entitlementCollection({ members: [dana] });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.user?.mailAddress).toBe('dana@example.invalid');
+});
+
+test('7.1-preview.1 User Entitlements uses value', () => {
+  const rows = entitlementCollection({ value: [evan] });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.user?.displayName).toBe('Evan Hale');
+});
+
+test('unknown entitlement wrappers yield no invented users', () => {
+  expect(entitlementCollection({})).toEqual([]);
+  expect(entitlementCollection(undefined)).toEqual([]);
 });

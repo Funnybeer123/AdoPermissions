@@ -2,12 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   adoGetJson,
   buildAdoUrl,
+  entitlementCollection,
   hasSandboxPat,
   mapEntitlementToUser,
   mapGroup,
   mapProject,
   resolveSandboxOrg,
-  type EntitlementMember,
+  type EntitlementCollection,
   type GraphGroup,
   type ProjectValue,
   type SandboxStatus,
@@ -26,7 +27,7 @@ function pathname(req: IncomingMessage): string {
   return (req.url ?? '').split('?')[0] ?? '';
 }
 
-export async function loadSandboxInventory() {
+export async function loadSandboxInventory(fetchImpl: typeof fetch = fetch) {
   const organization = resolveSandboxOrg();
   const pat = process.env.AZURE_DEVOPS_PAT?.trim() ?? '';
   if (!pat) {
@@ -51,9 +52,9 @@ export async function loadSandboxInventory() {
   });
 
   const [projects, entitlements, groups] = await Promise.all([
-    adoGetJson<{ value?: ProjectValue[] }>(projectsUrl, pat),
-    adoGetJson<{ members?: EntitlementMember[]; totalCount?: number }>(entitlementsUrl, pat),
-    adoGetJson<{ value?: GraphGroup[] }>(groupsUrl, pat),
+    adoGetJson<{ value?: ProjectValue[] }>(projectsUrl, pat, fetchImpl),
+    adoGetJson<EntitlementCollection>(entitlementsUrl, pat, fetchImpl),
+    adoGetJson<{ value?: GraphGroup[] }>(groupsUrl, pat, fetchImpl),
   ]);
 
   if (!projects.ok || !entitlements.ok || !groups.ok) {
@@ -68,7 +69,7 @@ export async function loadSandboxInventory() {
     return { status };
   }
 
-  const users = (entitlements.data.members ?? []).map(mapEntitlementToUser);
+  const users = entitlementCollection(entitlements.data).map(mapEntitlementToUser);
   const projectSummaries = (projects.data.value ?? []).map(mapProject);
   const groupSummaries = (groups.data.value ?? []).map(mapGroup);
   const stakeholders = users.filter((user) => user.license === 'Stakeholder').length;
